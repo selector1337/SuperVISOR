@@ -1,22 +1,35 @@
 const qrcode = require('qrcode');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { execFile } = require('child_process');
+const store = require('./store');
+
+function bundledBrowserPath() {
+  try {
+    return require('puppeteer').executablePath();
+  } catch (error) {
+    return null;
+  }
+}
 
 const browserPaths = [
   process.env.CHROME_PATH,
+  bundledBrowserPath(),
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   '/usr/bin/google-chrome',
   '/usr/bin/google-chrome-stable',
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser'
 ].filter(Boolean);
+const failedBrowserPaths = new Set();
 
 function getBrowserPath() {
-  return browserPaths.find((browserPath) => fs.existsSync(browserPath));
+  return browserPaths.find((browserPath) => !failedBrowserPaths.has(browserPath) && fs.existsSync(browserPath));
 }
 
 let io;
@@ -26,11 +39,172 @@ let qrCodeDataUrl = null;
 let cachedGroups = [];
 let lastError = null;
 let isInitializing = false;
+let startPromise = null;
+let healthTimer = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let manualDisconnectUntil = 0;
+let recentIncomingMessages = [];
+const avatarCache = new Map();
+const MEDIA_DOWNLOAD_LIMIT = 8;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+}
+
+function debugLog(message, details = '') {
+  const line = `[${new Date().toISOString()}] ${message}${details ? ` ${details}` : ''}\n`;
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'whatsapp-debug.log'), line);
+  } catch (error) {
+    console.warn('Nao consegui escrever whatsapp-debug.log:', error.message);
+  }
+  console.log(message, details);
+}
+
 function authDir() {
   return path.join(process.cwd(), '.wwebjs_auth');
+}
+
+function sessionDir() {
+  return path.join(authDir(), 'session');
+}
+
+function cacheDir() {
+  return path.join(process.cwd(), '.wwebjs_cache');
+}
+
+function browserPidFile() {
+  return path.join(authDir(), 'browser.pid');
+}
+
+async function removeDir(target) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+      if (!fs.existsSync(target)) return;
+    } catch (error) {
+      lastError = `Nao consegui limpar a sessao salva: ${error.message}`;
+    }
+    await delay(700);
+  }
+
+  if (fs.existsSync(target)) {
+    const error = new Error(`Nao consegui limpar ${path.basename(target)}. Feche outros Chromes/WhatsApp Web e tente novamente.`);
+    error.status = 409;
+    throw error;
+  }
+}
+
+async function removeAuthArtifacts() {
+  await removeDir(authDir());
+  await removeDir(cacheDir());
+}
+
+function readBrowserPid() {
+  try {
+    const value = fs.readFileSync(browserPidFile(), 'utf8').trim();
+    const pid = Number(value);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeBrowserPid(instance) {
+  try {
+    const pid = instance?.pupBrowser?.process()?.pid;
+    if (!pid) return;
+    fs.mkdirSync(authDir(), { recursive: true });
+    fs.writeFileSync(browserPidFile(), String(pid));
+    debugLog('PID do navegador WhatsApp registrado', String(pid));
+  } catch (error) {
+    debugLog('Nao consegui registrar PID do navegador WhatsApp', error.message);
+  }
+}
+
+function commandLineForPid(pid) {
+  if (!pid) return '';
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+  } catch (error) {
+    return '';
+  }
+}
+
+function processLooksLikeWhatsappBrowser(pid) {
+  const commandLine = commandLineForPid(pid);
+  if (!commandLine) return process.platform === 'win32';
+  return commandLine.includes('.wwebjs_auth')
+    || commandLine.includes(sessionDir())
+    || commandLine.includes('whatsapp-web.js')
+    || commandLine.includes('--remote-debugging');
+}
+
+function killProcess(pid, reason) {
+  if (!pid || pid === process.pid) return false;
+  try {
+    if (!processLooksLikeWhatsappBrowser(pid)) {
+      debugLog('Ignorando PID que nao parece ser navegador do WhatsApp', `${pid} ${reason}`);
+      return false;
+    }
+    process.kill(pid, 'SIGTERM');
+    debugLog('Encerrando navegador antigo do WhatsApp', `${pid} ${reason}`);
+    return true;
+  } catch (error) {
+    if (error.code !== 'ESRCH') debugLog('Nao consegui encerrar navegador antigo', `${pid} ${error.message}`);
+    return false;
+  }
+}
+
+function cleanupChromiumLocks() {
+  const dir = sessionDir();
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'lockfile']) {
+    const target = path.join(dir, name);
+    try {
+      if (fs.existsSync(target)) fs.rmSync(target, { force: true, recursive: true });
+    } catch (error) {
+      debugLog('Nao consegui limpar lock do Chromium', `${name} ${error.message}`);
+    }
+  }
+}
+
+async function recoverSessionLock(reason = 'recovery') {
+  debugLog('Recuperando lock da sessao WhatsApp', reason);
+  killProcess(readBrowserPid(), reason);
+  try {
+    if (fs.existsSync(browserPidFile())) fs.rmSync(browserPidFile(), { force: true });
+  } catch (error) {
+    debugLog('Nao consegui remover browser.pid antigo', error.message);
+  }
+  cleanupChromiumLocks();
+  await delay(1200);
+  cleanupChromiumLocks();
+}
+
+async function closeClientBrowser(instance) {
+  const pid = instance?.pupBrowser?.process()?.pid;
+  try {
+    await instance?.pupBrowser?.close();
+  } catch (error) {
+    console.warn('Nao consegui fechar o navegador do WhatsApp:', error.message);
+  }
+
+  try {
+    instance?.pupBrowser?.process()?.kill();
+  } catch (error) {
+    console.warn('Nao consegui encerrar o processo do navegador do WhatsApp:', error.message);
+  }
+
+  if (pid) {
+    await delay(700);
+    killProcess(pid, 'closeClientBrowser');
+  }
 }
 
 function emitState() {
@@ -39,6 +213,7 @@ function emitState() {
     status,
     qrCodeDataUrl,
     groups: cachedGroups,
+    connectedNumber: connectedNumber(),
     error: lastError
   });
 }
@@ -48,16 +223,55 @@ function initWhatsApp(socketServer) {
   startClient();
 }
 
+function isSessionAlreadyRunningError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('browser is already running')
+    || message.includes('userdatadir')
+    || message.includes('singletonlock')
+    || message.includes('processsingleton');
+}
+
+function isBrowserSpawnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('spawn eperm') || message.includes('spawn eacces') || message.includes('permission denied');
+}
+
 function startClient() {
+  if (startPromise) return startPromise;
+  startPromise = startClientInternal().finally(() => {
+    startPromise = null;
+  });
+  return startPromise;
+}
+
+async function startClientInternal({ recovered = false } = {}) {
   if (isInitializing) return;
   isInitializing = true;
+  status = 'loading';
+  qrCodeDataUrl = null;
+  lastError = null;
+  const browserPath = getBrowserPath();
+  debugLog('Iniciando cliente WhatsApp', `browser=${browserPath || 'bundled'}`);
+  emitState();
+
+  if (!recovered && readBrowserPid()) {
+    await recoverSessionLock('startup com PID antigo registrado');
+  }
 
   client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({ rmMaxRetries: 10 }),
     puppeteer: {
       headless: true,
-      executablePath: getBrowserPath(),
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      protocolTimeout: 120000,
+      executablePath: browserPath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--disable-extensions'
+      ]
     }
   });
 
@@ -65,63 +279,193 @@ function startClient() {
     status = 'qr';
     lastError = null;
     qrCodeDataUrl = await qrcode.toDataURL(qr);
+    debugLog('QR Code do WhatsApp gerado.');
     emitState();
   });
 
-  client.on('loading_screen', () => {
+  client.on('loading_screen', (percent, message) => {
+    debugLog('Tela de carregamento WhatsApp', `${percent || 0}% ${message || ''}`);
+    if (status === 'ready' || status === 'authenticated') return;
     status = 'loading';
     lastError = null;
     emitState();
   });
 
   client.on('authenticated', () => {
+    if (status === 'ready') return;
     status = 'authenticated';
     lastError = null;
     qrCodeDataUrl = null;
-    console.log('WhatsApp autenticado. Aguardando sincronização...');
+    debugLog('WhatsApp autenticado. Aguardando sincronização...');
     emitState();
   });
 
   client.on('auth_failure', (message) => {
     status = 'error';
     lastError = `Falha de autenticação: ${message}`;
-    console.error('Falha de autenticação do WhatsApp:', message);
+    debugLog('Falha de autenticação do WhatsApp', message);
     emitState();
   });
 
-  client.on('change_state', (state) => {
-    console.log('Estado interno do WhatsApp:', state);
+  client.on('change_state', (stateName) => {
+    debugLog('Estado interno do WhatsApp', stateName);
+    if (stateName === 'CONNECTED' && status !== 'ready') {
+      status = 'ready';
+      lastError = null;
+      qrCodeDataUrl = null;
+      emitState();
+    }
   });
 
   client.on('ready', async () => {
     status = 'ready';
     lastError = null;
     qrCodeDataUrl = null;
-    console.log('WhatsApp pronto. Carregando grupos...');
+    debugLog('WhatsApp pronto. Carregando grupos...');
+    emitState();
     try {
-      await refreshGroups({ retries: 8, waitForConnection: true });
+      await withTimeout(
+        refreshGroups({ retries: 3, waitForConnection: true }),
+        30000,
+        'WhatsApp conectou, mas a lista de grupos demorou para sincronizar. Clique em Atualizar em alguns instantes.'
+      );
     } catch (error) {
       lastError = `Conectado, mas não consegui carregar os grupos: ${error.message}`;
-      console.error('Erro ao carregar grupos:', error);
+      debugLog('Erro ao carregar grupos', error.message);
     }
     emitState();
   });
 
+  client.on('message', async (message) => {
+    if (!io) return;
+    try {
+      const summary = await messageSummary(message);
+      if (!message.fromMe) {
+        const identities = await messageIdentity(message);
+        const record = {
+          chatId: message.from,
+          timestamp: summary.timestamp,
+          identities
+        };
+        recentIncomingMessages.push({
+          ...record
+        });
+        recentIncomingMessages = recentIncomingMessages.slice(-2000);
+        persistAttendanceRecord(record);
+      }
+      io.emit('whatsapp:message', summary);
+    } catch (error) {
+      io.emit('whatsapp:message', {
+        id: message.id?._serialized,
+        from: message.author || message.from,
+        to: message.to,
+        body: message.body || '',
+        fromMe: Boolean(message.fromMe),
+        ack: typeof message.ack === 'number' ? message.ack : null,
+        timestamp: message.timestamp ? message.timestamp * 1000 : Date.now()
+      });
+    }
+  });
+
+  client.on('message_ack', (message, ack) => {
+    if (!io) return;
+    io.emit('whatsapp:messageAck', {
+      id: message.id?._serialized,
+      chatId: message.to || message.from,
+      ack
+    });
+  });
+
   client.on('disconnected', () => {
+    debugLog('WhatsApp desconectado.');
     status = 'disconnected';
     lastError = null;
     cachedGroups = [];
     emitState();
+    if (Date.now() > manualDisconnectUntil) scheduleReconnect('evento disconnected');
   });
 
-  client.initialize().catch((error) => {
+  client.initialize().then(() => {
+    writeBrowserPid(client);
+  }).catch(async (error) => {
+    if (browserPath && isBrowserSpawnError(error) && !failedBrowserPaths.has(browserPath)) {
+      failedBrowserPaths.add(browserPath);
+      debugLog('Navegador bloqueado pelo sistema, tentando outro caminho', browserPath);
+      await closeClientBrowser(client);
+      client = null;
+      isInitializing = false;
+      return startClientInternal({ recovered });
+    }
+
+    if (!recovered && isSessionAlreadyRunningError(error)) {
+      debugLog('Sessao WhatsApp travada detectada', error.message);
+      await closeClientBrowser(client);
+      await recoverSessionLock(error.message);
+      client = null;
+      isInitializing = false;
+      return startClientInternal({ recovered: true });
+    }
     status = 'error';
     lastError = error.message;
-    console.error('Erro ao iniciar WhatsApp:', error);
+    debugLog('Erro ao iniciar WhatsApp', error.stack || error.message);
     emitState();
+    if (Date.now() > manualDisconnectUntil) {
+      setTimeout(() => scheduleReconnect('falha ao iniciar WhatsApp'), 1000);
+    }
   }).finally(() => {
     isInitializing = false;
+    debugLog('Inicializacao do cliente WhatsApp finalizada.');
   });
+
+  setTimeout(() => {
+    if (status === 'loading' && !qrCodeDataUrl) {
+      lastError = 'WhatsApp Web demorou para gerar o QR Code. Clique em Gerar novo QR novamente.';
+      debugLog('Timeout aguardando QR Code.');
+      emitState();
+    }
+  }, 30000);
+
+  if (healthTimer) clearInterval(healthTimer);
+  healthTimer = setInterval(async () => {
+    if (!client || status === 'qr' || status === 'error') return;
+    const connectionState = await getClientState();
+    if (connectionState === 'CONNECTED') {
+      reconnectAttempts = 0;
+      status = 'ready';
+      lastError = null;
+      qrCodeDataUrl = null;
+      debugLog('Watchdog marcou WhatsApp como conectado.');
+      emitState();
+      return;
+    }
+
+    if (status === 'ready' && !connectionState && Date.now() > manualDisconnectUntil) {
+      status = 'disconnected';
+      lastError = 'WhatsApp perdeu a conexão. Tentando reconectar automaticamente.';
+      debugLog('Watchdog detectou queda do WhatsApp.');
+      emitState();
+      scheduleReconnect('watchdog sem estado');
+    }
+  }, 15000);
+}
+
+function scheduleReconnect(reason = 'reconnect') {
+  if (reconnectTimer || isInitializing || startPromise) return;
+  reconnectAttempts += 1;
+  const delayMs = Math.min(30000, 3000 * reconnectAttempts);
+  debugLog('Agendando reconexão WhatsApp', `${reason} em ${delayMs}ms`);
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    try {
+      cleanupChromiumLocks();
+      await closeClientBrowser(client);
+      client = null;
+      startClient();
+    } catch (error) {
+      debugLog('Falha ao tentar reconectar WhatsApp', error.message);
+      scheduleReconnect('falha no reconnect');
+    }
+  }, delayMs);
 }
 
 async function getClientState() {
@@ -162,6 +506,259 @@ function isCurrentUserParticipant(chat) {
   });
 }
 
+function contactNumberFromId(id) {
+  return String(id || '').replace(/@.*/, '');
+}
+
+function comparableNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function numbersMatch(left, right) {
+  const a = comparableNumber(left);
+  const b = comparableNumber(right);
+  if (!a || !b) return false;
+  return a === b || a.endsWith(b) || b.endsWith(a);
+}
+
+function identityParts(value) {
+  if (!value) return [];
+  if (typeof value === 'string' || typeof value === 'number') return [String(value)];
+  if (typeof value !== 'object') return [];
+
+  const parts = [
+    value._serialized,
+    value.serialized,
+    value.user,
+    value.server && value.user ? `${value.user}@${value.server}` : null
+  ];
+
+  return parts.filter(Boolean).map(String);
+}
+
+async function messageIdentity(message) {
+  const identities = [
+    ...identityParts(message.author),
+    ...identityParts(message.from),
+    ...identityParts(message.to),
+    ...identityParts(message.id?.participant),
+    ...identityParts(message.id?.remote),
+    ...identityParts(message._data?.author),
+    ...identityParts(message._data?.from),
+    ...identityParts(message._data?.id?.participant),
+    ...identityParts(message._data?.id?.remote),
+    contactNumberFromId(message.author || message.from)
+  ];
+
+  try {
+    const contact = await message.getContact();
+    identities.push(
+      ...identityParts(contact?.id),
+      contact?.number,
+      contact?.pushname,
+      contact?.name,
+      contact?.shortName
+    );
+  } catch (error) {
+    // The raw message identifiers above are enough for most cases.
+  }
+
+  return [...new Set(identities.filter(Boolean).map(String))];
+}
+
+function watcherMatchesMessage(stat, messageRecord) {
+  const identities = messageRecord.identities || [];
+  const participantNumber = contactNumberFromId(stat.participantId);
+  if (stat.participantId) {
+    return identities.some((identity) => identity === stat.participantId || numbersMatch(identity, participantNumber));
+  }
+
+  return identities.some((identity) => numbersMatch(identity, stat.contactPhone));
+}
+
+async function persistAttendanceRecord(record) {
+  try {
+    const watchers = await store.listWatchers();
+    const matching = watchers.filter((watcher) => watcher.groupId === record.chatId && watcherMatchesMessage(watcher, record));
+    for (const watcher of matching) {
+      await store.recordAttendanceMessage(watcher, record.timestamp);
+      debugLog('Estatistica persistida', `${watcher.contactName} ${watcher.groupName}`);
+    }
+  } catch (error) {
+    debugLog('Nao consegui persistir estatistica', error.message);
+  }
+}
+
+async function getMessageSenderNumber(message) {
+  try {
+    const contact = await message.getContact();
+    if (contact?.number) return contact.number;
+    if (contact?.id?.user) return contact.id.user;
+  } catch (error) {
+    // Fallback below covers messages where WhatsApp does not expose contact details.
+  }
+
+  return contactNumberFromId(message.author || message.from);
+}
+
+function contactDisplayName(contact, fallback = '') {
+  return contact?.pushname || contact?.name || contact?.shortName || contact?.number || fallback;
+}
+
+function bodyMentionTokens(body = '') {
+  const tokens = [];
+  String(body || '').replace(/@(\d{5,})(?:@(lid|c\.us))?/g, (match, value, suffix) => {
+    tokens.push(suffix ? `${value}@${suffix}` : value);
+    return match;
+  });
+  return [...new Set(tokens)];
+}
+
+async function resolveMentionToken(token) {
+  const raw = String(token || '').replace(/^@/, '');
+  if (!raw) return null;
+  const rawNumber = raw.replace(/@.*/, '');
+  try {
+    const savedContacts = await store.listContacts();
+    const saved = savedContacts.find((contact) => numbersMatch(contact.phone, rawNumber) || contact.whatsappId === raw);
+    if (saved) {
+      return {
+        id: saved.whatsappId || raw,
+        token: rawNumber,
+        number: saved.phone,
+        name: saved.name
+      };
+    }
+  } catch (error) {
+    // Stored contacts are just a nicer label fallback.
+  }
+  const candidates = raw.includes('@') ? [raw] : [`${raw}@c.us`, `${raw}@lid`];
+  for (const id of candidates) {
+    try {
+      const contact = await client.getContactById(id);
+      const fallback = contactNumberFromId(id);
+      return {
+        id,
+        token: raw.replace(/@.*/, ''),
+        number: contact?.number || contact?.id?.user || fallback,
+        name: contactDisplayName(contact, fallback)
+      };
+    } catch (error) {
+      // Try the next possible WhatsApp identifier shape.
+    }
+  }
+  return { id: raw, token: raw.replace(/@.*/, ''), number: raw.replace(/@.*/, ''), name: raw.replace(/@.*/, '') };
+}
+
+async function profilePicUrlById(id) {
+  if (!client || !id) return null;
+  const cached = avatarCache.get(id);
+  const now = Date.now();
+  if (cached && now - cached.createdAt < 1000 * 60 * 30) return cached.url;
+
+  try {
+    const url = await withTimeout(client.getProfilePicUrl(id), 900, 'Foto demorou para carregar.');
+    avatarCache.set(id, { url, createdAt: now });
+    return url;
+  } catch (error) {
+    avatarCache.set(id, { url: null, createdAt: now });
+    return null;
+  }
+}
+
+function cachedProfilePicUrlById(id) {
+  if (!client || !id) return null;
+  const cached = avatarCache.get(id);
+  const now = Date.now();
+  if (cached && now - cached.createdAt < 1000 * 60 * 30) return cached.url;
+  profilePicUrlById(id).then(() => emitState()).catch(() => {});
+  return null;
+}
+
+async function contactProfilePicUrl(contact) {
+  return profilePicUrlById(contact?.id?._serialized);
+}
+
+function chatSummary(chat) {
+  const id = chat.id?._serialized;
+  const isGroup = Boolean(chat.isGroup);
+  const lastMessage = chat.lastMessage;
+  return {
+    id,
+    name: chat.name || chat.formattedTitle || contactNumberFromId(id),
+    isGroup,
+    avatarUrl: cachedProfilePicUrlById(id),
+    unreadCount: chat.unreadCount || 0,
+    timestamp: chat.timestamp || null,
+    lastMessage: lastMessage?.body || (lastMessage?.hasMedia ? '[mídia]' : '')
+  };
+}
+
+async function messageSummary(message, { includeMedia = true, includeAvatar = true, includeChatName = true } = {}) {
+  const from = message.author || message.from;
+  const summary = {
+    id: message.id?._serialized,
+    from,
+    to: message.to,
+    body: message.body || '',
+    fromMe: Boolean(message.fromMe),
+    timestamp: message.timestamp ? message.timestamp * 1000 : Date.now(),
+    ack: typeof message.ack === 'number' ? message.ack : null,
+    hasMedia: Boolean(message.hasMedia),
+    media: null,
+    senderName: contactNumberFromId(from),
+    senderNumber: contactNumberFromId(from),
+    senderAvatarUrl: null,
+    mentions: [],
+    chatName: ''
+  };
+
+  try {
+    const contact = await message.getContact();
+    summary.senderName = contactDisplayName(contact, summary.senderName);
+    summary.senderNumber = contact?.number || contact?.id?.user || summary.senderNumber;
+    summary.senderAvatarUrl = includeAvatar ? await contactProfilePicUrl(contact) : null;
+  } catch (error) {
+    // Keep the ID fallback when WhatsApp Web does not expose contact details yet.
+  }
+
+  if (includeChatName) {
+    try {
+      const chat = await message.getChat();
+      summary.chatName = chat?.name || chat?.formattedTitle || '';
+    } catch (error) {
+      // Chat name is just a notification enhancement.
+    }
+  }
+
+  const mentionedIds = [
+    ...(Array.isArray(message.mentionedIds) ? message.mentionedIds : []),
+    ...(Array.isArray(message._data?.mentionedJidList) ? message._data.mentionedJidList : []),
+    ...bodyMentionTokens(message.body)
+  ];
+  if (mentionedIds.length) {
+    const mentions = await Promise.all([...new Set(mentionedIds)].map(resolveMentionToken));
+    summary.mentions = mentions.filter(Boolean);
+  }
+
+  if (message.hasMedia && includeMedia) {
+    try {
+      const media = await message.downloadMedia();
+      if (media) {
+        summary.media = {
+          mimetype: media.mimetype,
+          filename: media.filename || message.body || 'arquivo',
+          dataUrl: `data:${media.mimetype};base64,${media.data}`
+        };
+      }
+    } catch (error) {
+      summary.mediaError = error.message;
+    }
+  }
+
+  return summary;
+}
+
 async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
   if (!client || status !== 'ready') {
     const error = new Error('WhatsApp ainda não está conectado.');
@@ -199,9 +796,9 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
       .filter((chat) => chat.isGroup && isCurrentUserParticipant(chat))
       .map((chat) => ({
         id: chat.id._serialized,
-        name: chat.name
+        name: chat.name || chat.formattedTitle || chat.id?._serialized || 'Grupo sem nome'
       }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     lastError = null;
     emitState();
@@ -213,13 +810,238 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
   }
 }
 
+async function listConversations() {
+  requireReady();
+  const chats = await client.getChats();
+  const topChats = chats.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 80);
+  return topChats.map(chatSummary);
+}
+
+async function listMessages(chatId, limit = 24) {
+  requireReady();
+  const chat = await client.getChatById(chatId);
+  const messages = await chat.fetchMessages({ limit: Number(limit) || 24 });
+  const mediaStart = Math.max(0, messages.length - MEDIA_DOWNLOAD_LIMIT);
+  const summaries = await Promise.all(messages.map((message, index) => (
+    messageSummary(message, { includeMedia: index >= mediaStart, includeAvatar: false, includeChatName: false })
+  )));
+  return summaries.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+async function sendMessage(chatId, message) {
+  requireReady();
+  const response = await client.sendMessage(chatId, message);
+  return { ok: true, messageId: response.id._serialized };
+}
+
+async function sendMessageWithMedia(chatId, { message = '', media }) {
+  requireReady();
+  if (!media?.data || !media?.mimetype) return sendMessage(chatId, message);
+  let preparedMedia = media;
+  const originalMimetype = String(media.mimetype).split(';')[0].trim() || media.mimetype;
+  if (originalMimetype.startsWith('audio/')) {
+    preparedMedia = await convertAudioForWhatsApp(media).catch((error) => {
+      debugLog('Nao consegui converter audio para ogg/opus', error.message);
+      return media;
+    });
+  }
+
+  const mimetype = String(preparedMedia.mimetype).split(';')[0].trim() || preparedMedia.mimetype;
+  const isAudio = mimetype.startsWith('audio/');
+  const payload = new MessageMedia(mimetype, preparedMedia.data, preparedMedia.filename || mediaFilename(mimetype));
+  const attempts = isAudio
+    ? [
+        { caption: message, sendAudioAsVoice: true },
+        { caption: message },
+        { caption: message, sendMediaAsDocument: true }
+      ]
+    : [{ caption: message }];
+
+  let lastError;
+  for (const options of attempts) {
+    try {
+      const response = await client.sendMessage(chatId, payload, options);
+      return { ok: true, messageId: response.id._serialized };
+    } catch (error) {
+      lastError = error;
+      debugLog('Falha ao enviar midia, tentando fallback', `${mimetype} ${error.message}`);
+    }
+  }
+
+  throw lastError || new Error('Nao consegui enviar a midia.');
+}
+
+function mediaFilename(mimetype) {
+  if (mimetype === 'audio/ogg') return `audio-${Date.now()}.ogg`;
+  if (mimetype === 'audio/webm') return `audio-${Date.now()}.webm`;
+  if (mimetype === 'audio/wav') return `audio-${Date.now()}.wav`;
+  if (mimetype === 'audio/mpeg') return `audio-${Date.now()}.mp3`;
+  return `arquivo-${Date.now()}`;
+}
+
+async function convertAudioForWhatsApp(media) {
+  const ffmpegPath = require('ffmpeg-static');
+  if (!ffmpegPath) throw new Error('ffmpeg-static nao esta disponivel.');
+
+  const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const input = path.join(os.tmpdir(), `supervisor-audio-${id}.webm`);
+  const output = path.join(os.tmpdir(), `supervisor-audio-${id}.ogg`);
+
+  try {
+    await fs.promises.writeFile(input, Buffer.from(media.data, 'base64'));
+    await execFileAsync(ffmpegPath, [
+      '-y',
+      '-i', input,
+      '-vn',
+      '-ac', '1',
+      '-ar', '48000',
+      '-c:a', 'libopus',
+      '-b:a', '32k',
+      output
+    ]);
+    const converted = await fs.promises.readFile(output);
+    return {
+      ...media,
+      mimetype: 'audio/ogg',
+      filename: `audio-${Date.now()}.ogg`,
+      data: converted.toString('base64'),
+      asVoice: true
+    };
+  } finally {
+    await fs.promises.unlink(input).catch(() => {});
+    await fs.promises.unlink(output).catch(() => {});
+  }
+}
+
+function execFileAsync(command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        error.message = stderr || error.message;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function deleteMessage(chatId, messageId, { everyone = true } = {}) {
+  requireReady();
+  const chat = await client.getChatById(chatId);
+  const messages = await chat.fetchMessages({ limit: 80 });
+  const message = messages.find((item) => item.id?._serialized === messageId);
+  if (!message) {
+    const error = new Error('Mensagem nao encontrada entre as mensagens recentes.');
+    error.status = 404;
+    throw error;
+  }
+  await message.delete(Boolean(everyone));
+}
+
+async function editMessage(chatId, messageId, body) {
+  requireReady();
+  const chat = await client.getChatById(chatId);
+  const messages = await chat.fetchMessages({ limit: 80 });
+  const message = messages.find((item) => item.id?._serialized === messageId);
+  if (!message) {
+    const error = new Error('Mensagem nao encontrada entre as mensagens recentes.');
+    error.status = 404;
+    throw error;
+  }
+  if (!message.fromMe || typeof message.edit !== 'function') {
+    const error = new Error('Este WhatsApp Web nao permite editar esta mensagem pelo painel.');
+    error.status = 409;
+    throw error;
+  }
+  await message.edit(body);
+}
+
+async function deleteConversation(chatId) {
+  requireReady();
+  const chat = await client.getChatById(chatId);
+  await chat.delete();
+}
+
+async function listGroupParticipants(groupId) {
+  requireReady();
+  if (!groupId) {
+    const error = new Error('Selecione um grupo para carregar os participantes.');
+    error.status = 400;
+    throw error;
+  }
+
+  let chat;
+  try {
+    chat = await client.getChatById(groupId);
+  } catch (error) {
+    const chats = await client.getChats();
+    chat = chats.find((item) => item.id?._serialized === groupId);
+  }
+
+  if (!chat?.isGroup) {
+    const error = new Error('Selecione um grupo valido para carregar os participantes.');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!Array.isArray(chat.participants) || !chat.participants.length) {
+    try {
+      const freshChat = await client.getChatById(chat.id?._serialized || groupId);
+      chat = freshChat || chat;
+    } catch (error) {
+      // Keep the original chat and use the message fallback below.
+    }
+  }
+
+  const participants = Array.isArray(chat.participants) ? chat.participants : [];
+  const mapped = await Promise.all(participants.map(async (participant) => {
+    const id = participant.id?._serialized || '';
+    if (!id) return null;
+    let name = participant.id?.user || contactNumberFromId(id);
+    let number = participant.id?.user || contactNumberFromId(id);
+    try {
+      const contact = await client.getContactById(id);
+      name = contact.pushname || contact.name || contact.shortName || name;
+      number = contact.number || number;
+    } catch (error) {
+      // Keep fallback fields.
+    }
+    return { id, name, number };
+  }));
+
+  const byParticipants = mapped
+    .filter(Boolean)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  if (byParticipants.length) return byParticipants;
+
+  const messages = await chat.fetchMessages({ limit: 500 });
+  const senders = new Map();
+  for (const message of messages) {
+    const id = message.author || (!message.fromMe ? message.from : null);
+    if (!id || senders.has(id)) continue;
+    const number = contactNumberFromId(id);
+    senders.set(id, { id, name: number, number });
+  }
+
+  return [...senders.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
 function getState() {
   return {
     status,
     qrCodeDataUrl,
     groups: cachedGroups,
+    connectedNumber: connectedNumber(),
     error: lastError
   };
+}
+
+function connectedNumber() {
+  const wid = client?.info?.wid;
+  const number = client?.info?.me?.user || wid?.user || contactNumberFromId(wid?._serialized);
+  return number || null;
 }
 
 function requireReady() {
@@ -247,20 +1069,157 @@ async function sendMessageToGroups(groupIds, message) {
   return results;
 }
 
+async function sendMessageToTargets({ groupIds = [], contactIds = [] }, message) {
+  requireReady();
+
+  const results = [];
+  const targets = [
+    ...groupIds.map((id) => ({ id, type: 'group' })),
+    ...contactIds.map((id) => ({ id, type: 'contact' }))
+  ];
+
+  for (const target of targets) {
+    try {
+      const response = await client.sendMessage(target.id, message);
+      results.push({ targetId: target.id, type: target.type, ok: true, messageId: response.id._serialized });
+    } catch (error) {
+      results.push({ targetId: target.id, type: target.type, ok: false, error: error.message });
+    }
+  }
+
+  return results;
+}
+
+async function getContactStats(contacts = [], groupIds = [], date = null) {
+  requireReady();
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))
+    ? date
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const start = new Date(`${selectedDate}T00:00:00-03:00`).getTime();
+  const end = start + 24 * 60 * 60 * 1000;
+  const stats = contacts.map((contact) => ({ ...contact, date: selectedDate, firstMessageAt: null, lastMessageAt: null, count: 0 }));
+  const byNumber = new Map(stats.map((contact) => [contact.phone, contact]));
+  const chats = groupIds.length ? await Promise.all(groupIds.map((id) => client.getChatById(id))) : (await client.getChats()).filter((chat) => chat.isGroup);
+
+  for (const chat of chats) {
+    const messages = await chat.fetchMessages({ limit: 300 });
+    for (const message of messages) {
+      if (message.fromMe) continue;
+      const timestamp = message.timestamp * 1000;
+      if (timestamp < start || timestamp >= end) continue;
+      const number = await getMessageSenderNumber(message);
+      const stat = byNumber.get(number);
+      if (!stat) continue;
+      stat.count += 1;
+      stat.firstMessageAt = stat.firstMessageAt ? Math.min(stat.firstMessageAt, timestamp) : timestamp;
+      stat.lastMessageAt = stat.lastMessageAt ? Math.max(stat.lastMessageAt, timestamp) : timestamp;
+    }
+  }
+
+  return stats;
+}
+
+async function getWatcherStats(watchers = [], date = null) {
+  requireReady();
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))
+    ? date
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const start = new Date(`${selectedDate}T00:00:00-03:00`).getTime();
+  const end = start + 24 * 60 * 60 * 1000;
+  const savedStats = await store.listAttendanceStats(watchers, selectedDate);
+  const stats = watchers.map((watcher) => ({ ...watcher, date: selectedDate, firstMessageAt: null, lastMessageAt: null, count: 0 }));
+
+  for (const stat of stats) {
+    const chat = await client.getChatById(stat.groupId);
+    const messages = await chat.fetchMessages({ limit: 2000 });
+    let scannedToday = 0;
+    const sampleIdentities = [];
+    for (const message of messages) {
+      if (message.fromMe) continue;
+      const timestamp = message.timestamp * 1000;
+      if (timestamp < start || timestamp >= end) continue;
+      scannedToday += 1;
+      const number = await getMessageSenderNumber(message);
+      const record = {
+        chatId: chat.id?._serialized || stat.groupId,
+        timestamp,
+        identities: [...new Set([...(await messageIdentity(message)), number])]
+      };
+      if (sampleIdentities.length < 3) sampleIdentities.push(record.identities.slice(0, 8).join('|'));
+      if (!watcherMatchesMessage(stat, record)) continue;
+      stat.count += 1;
+      stat.firstMessageAt = stat.firstMessageAt ? Math.min(stat.firstMessageAt, timestamp) : timestamp;
+      stat.lastMessageAt = stat.lastMessageAt ? Math.max(stat.lastMessageAt, timestamp) : timestamp;
+    }
+
+    for (const record of recentIncomingMessages) {
+      if (record.chatId !== stat.groupId) continue;
+      if (record.timestamp < start || record.timestamp >= end) continue;
+      if (!watcherMatchesMessage(stat, record)) continue;
+      stat.count += 1;
+      stat.firstMessageAt = stat.firstMessageAt ? Math.min(stat.firstMessageAt, record.timestamp) : record.timestamp;
+      stat.lastMessageAt = stat.lastMessageAt ? Math.max(stat.lastMessageAt, record.timestamp) : record.timestamp;
+    }
+
+    if (!stat.count) {
+      debugLog('Estatistica sem correspondencia', JSON.stringify({
+        watcher: stat.contactName,
+        phone: stat.contactPhone,
+        participantId: stat.participantId,
+        groupName: stat.groupName,
+        scannedToday,
+        recentCache: recentIncomingMessages.filter((record) => record.chatId === stat.groupId && record.timestamp >= start && record.timestamp < end).length,
+        sampleIdentities
+      }));
+    }
+  }
+
+  return mergeAttendanceStats(stats, savedStats);
+}
+
+function mergeAttendanceStats(liveStats = [], savedStats = []) {
+  const savedByWatcher = new Map(savedStats.map((item) => [item.watcherId || item.id, item]));
+  return liveStats.map((stat) => {
+    const saved = savedByWatcher.get(stat.id);
+    if (!saved) return stat;
+    const firstValues = [stat.firstMessageAt, saved.firstMessageAt].filter(Boolean);
+    const lastValues = [stat.lastMessageAt, saved.lastMessageAt].filter(Boolean);
+    return {
+      ...stat,
+      ...saved,
+      firstMessageAt: firstValues.length ? Math.min(...firstValues) : null,
+      lastMessageAt: lastValues.length ? Math.max(...lastValues) : null,
+      count: Math.max(Number(stat.count || 0), Number(saved.count || 0))
+    };
+  });
+}
+
 async function disconnectWhatsApp({ clearSession = false } = {}) {
+  debugLog('Solicitado reinicio/desconexao WhatsApp', `clearSession=${clearSession}`);
+  manualDisconnectUntil = Date.now() + 15000;
+  reconnectAttempts = 0;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   const currentClient = client;
   client = null;
   cachedGroups = [];
   qrCodeDataUrl = null;
   status = 'disconnected';
   lastError = null;
+  isInitializing = false;
 
   if (currentClient) {
-    try {
-      await currentClient.logout();
-    } catch (error) {
-      console.warn('Não consegui fazer logout pelo WhatsApp:', error.message);
+    if (clearSession) {
+      try {
+        await currentClient.logout();
+      } catch (error) {
+        console.warn('Não consegui fazer logout pelo WhatsApp:', error.message);
+      }
     }
+
+    await closeClientBrowser(currentClient);
 
     try {
       await currentClient.destroy();
@@ -269,18 +1228,30 @@ async function disconnectWhatsApp({ clearSession = false } = {}) {
     }
   }
 
-  if (clearSession && fs.existsSync(authDir())) {
-    fs.rmSync(authDir(), { recursive: true, force: true });
-  }
+  cleanupChromiumLocks();
+  await delay(700);
+  if (clearSession) await removeAuthArtifacts();
 
   emitState();
+  manualDisconnectUntil = 0;
   startClient();
 }
 
 module.exports = {
   disconnectWhatsApp,
+  deleteConversation,
+  deleteMessage,
+  editMessage,
+  getContactStats,
+  getWatcherStats,
   getState,
   initWhatsApp,
+  listConversations,
+  listGroupParticipants,
+  listMessages,
   refreshGroups,
+  sendMessage,
+  sendMessageWithMedia,
+  sendMessageToTargets,
   sendMessageToGroups
 };

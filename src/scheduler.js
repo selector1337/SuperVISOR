@@ -80,7 +80,10 @@ async function runDueSchedules() {
     if (!shouldRun) continue;
 
     try {
-      const results = await whatsapp.sendMessageToGroups(schedule.groupIds, formatBotMessage(schedule));
+      const results = await whatsapp.sendMessageToTargets({
+        groupIds: schedule.groupIds || [],
+        contactIds: schedule.contactIds || []
+      }, formatBotMessage(schedule));
       await store.markScheduleRun(schedule.id, runKey);
       loggedTransientFailures.delete(`${schedule.id}:${runKey}`);
       await store.addSendLog({

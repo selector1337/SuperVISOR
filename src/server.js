@@ -1,8 +1,26 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const session = require('express-session');
 const { Server } = require('socket.io');
+
+function loadEnvFile() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex === -1) return;
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (key && !process.env[key]) process.env[key] = value;
+  });
+}
+
+loadEnvFile();
 
 const store = require('./store');
 const scheduler = require('./scheduler');
@@ -13,7 +31,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'troque-este-segredo-em-producao',
@@ -70,12 +88,10 @@ function validateSchedule(body) {
     return 'Informe a mensagem.';
   }
 
-  if (!body.botName || body.botName.trim().length < 2) {
-    return 'Informe o nome do bot.';
-  }
-
-  if (!Array.isArray(body.groupIds) || body.groupIds.length === 0) {
-    return 'Selecione pelo menos um grupo.';
+  const hasGroups = Array.isArray(body.groupIds) && body.groupIds.length > 0;
+  const hasContacts = Array.isArray(body.contactIds) && body.contactIds.length > 0;
+  if (!hasGroups && !hasContacts) {
+    return 'Selecione pelo menos um grupo ou contato.';
   }
 
   if (!timePattern.test(body.time || '')) {
@@ -243,6 +259,190 @@ app.post('/api/whatsapp/disconnect', requireAuth, async (req, res, next) => {
   }
 });
 
+app.get('/api/contacts', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ contacts: await store.listContacts() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/contacts', requireAuth, async (req, res, next) => {
+  try {
+    const contact = await store.createContact(req.body);
+    res.status(201).json({ contact });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/contacts/:id', requireAuth, async (req, res, next) => {
+  try {
+    const contact = await store.updateContact(req.params.id, req.body);
+    res.json({ contact });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/contacts/:id', requireAuth, async (req, res, next) => {
+  try {
+    await store.deleteContact(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/conversations', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ conversations: await whatsapp.listConversations() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/conversations/:id/messages', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ messages: await whatsapp.listMessages(req.params.id, req.query.limit || 24) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/conversations/:id/messages', requireAuth, async (req, res, next) => {
+  try {
+    if ((!req.body.message || !req.body.message.trim()) && !req.body.media) {
+      return res.status(400).json({ error: 'Informe a mensagem ou anexo.' });
+    }
+
+    const result = req.body.media
+      ? await whatsapp.sendMessageWithMedia(req.params.id, { message: (req.body.message || '').trim(), media: req.body.media })
+      : await whatsapp.sendMessage(req.params.id, req.body.message.trim());
+    res.json({ result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/conversations/:id/messages/:messageId', requireAuth, async (req, res, next) => {
+  try {
+    await whatsapp.deleteMessage(req.params.id, req.params.messageId, {
+      everyone: req.query.everyone !== 'false'
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/conversations/message-delete', requireAuth, async (req, res, next) => {
+  try {
+    await whatsapp.deleteMessage(req.body.chatId, req.body.messageId, {
+      everyone: req.body.everyone !== false
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/conversations/:id/messages/:messageId', requireAuth, async (req, res, next) => {
+  try {
+    const body = String(req.body.message || '').trim();
+    if (!body) return res.status(400).json({ error: 'Informe a nova mensagem.' });
+    await whatsapp.editMessage(req.params.id, req.params.messageId, body);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/conversations/:id', requireAuth, async (req, res, next) => {
+  try {
+    await whatsapp.deleteConversation(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/whatsapp/groups/:id/participants', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ participants: await whatsapp.listGroupParticipants(req.params.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/whatsapp/group-participants', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ participants: await whatsapp.listGroupParticipants(req.body.groupId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/whatsapp/participants', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ participants: await whatsapp.listGroupParticipants(req.query.groupId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/stats/participants', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ participants: await whatsapp.listGroupParticipants(req.body.groupId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/stats/attendance', requireAuth, async (req, res, next) => {
+  try {
+    const watcherIds = String(req.query.watcherIds || '').split(',').map((item) => item.trim()).filter(Boolean);
+    const watchers = (await store.listWatchers()).filter((watcher) => !watcherIds.length || watcherIds.includes(watcher.id));
+    try {
+      res.json({ stats: await whatsapp.getWatcherStats(watchers, req.query.date) });
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      res.json({
+        stats: await store.listAttendanceStats(watchers, req.query.date),
+        offline: true
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/watchers', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ watchers: await store.listWatchers() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/watchers', requireAuth, async (req, res, next) => {
+  try {
+    const watcher = await store.createWatcher(req.body);
+    res.status(201).json({ watcher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/watchers/:id', requireAuth, async (req, res, next) => {
+  try {
+    await store.deleteWatcher(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/schedules', requireAuth, async (req, res, next) => {
   try {
     res.json({ schedules: await store.listSchedules() });
@@ -296,7 +496,10 @@ app.post('/api/schedules/:id/send-now', requireAuth, async (req, res, next) => {
     const schedule = await store.getSchedule(req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Agendamento não encontrado.' });
 
-    const results = await whatsapp.sendMessageToGroups(schedule.groupIds, formatBotMessage(schedule));
+    const results = await whatsapp.sendMessageToTargets({
+      groupIds: schedule.groupIds || [],
+      contactIds: schedule.contactIds || []
+    }, formatBotMessage(schedule));
     await store.addSendLog({
       scheduleId: schedule.id,
       scheduleTitle: schedule.title,

@@ -12,7 +12,10 @@ const MONGODB_DB = process.env.MONGODB_DB || 'whatsapp_manager_bot';
 const defaultStore = {
   users: [],
   schedules: [],
-  sendLogs: []
+  sendLogs: [],
+  contacts: [],
+  watchers: [],
+  attendanceStats: []
 };
 
 let mongoClient;
@@ -42,12 +45,39 @@ function ensureStore() {
 
 function readFileStore() {
   ensureStore();
-  return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+  const store = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+  return { ...defaultStore, ...store };
 }
 
 function writeFileStore(store) {
   ensureStore();
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+  fs.writeFileSync(STORE_FILE, JSON.stringify({ ...defaultStore, ...store }, null, 2));
+}
+
+function normalizePhone(phone) {
+  return String(phone || '').replace(/\D/g, '');
+}
+
+function normalizeTags(value) {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((tag) => String(tag || '').trim()).filter(Boolean))];
+  }
+
+  return [...new Set(String(value || '').split(',').map((tag) => tag.trim()).filter(Boolean))];
+}
+
+function normalizeContact(contact) {
+  const tags = normalizeTags(contact.tags && contact.tags.length ? contact.tags : contact.tag);
+  return {
+    ...contact,
+    tag: tags.join(', '),
+    tags
+  };
+}
+
+function whatsappContactId(phone) {
+  const normalized = normalizePhone(phone);
+  return normalized ? `${normalized}@c.us` : '';
 }
 
 function sortUsersByCreation(users) {
@@ -242,6 +272,291 @@ async function deleteUser(id) {
   writeFileStore(store);
 }
 
+async function listContacts() {
+  const db = await getDb();
+  const contacts = db
+    ? await db.collection('contacts').find({}).sort({ name: 1 }).toArray()
+    : readFileStore().contacts.sort((a, b) => a.name.localeCompare(b.name));
+
+  return contacts.map(normalizeContact);
+}
+
+async function createContact(payload) {
+  const db = await getDb();
+  const phone = normalizePhone(payload.phone);
+
+  if (!payload.name || payload.name.trim().length < 2) {
+    const error = new Error('Informe o nome do contato.');
+    error.status = 400;
+    throw error;
+  }
+
+  if (phone.length < 10) {
+    const error = new Error('Informe um telefone valido com DDD.');
+    error.status = 400;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  const tags = normalizeTags(payload.tags || payload.tag);
+  const contact = {
+    id: uuid(),
+    name: payload.name.trim(),
+    tag: tags.join(', '),
+    tags,
+    phone,
+    whatsappId: whatsappContactId(phone),
+    notes: (payload.notes || '').trim(),
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (db) {
+    await db.collection('contacts').insertOne(contact);
+    return contact;
+  }
+
+  const store = readFileStore();
+  if (store.contacts.some((item) => item.phone === phone)) {
+    const error = new Error('Este contato ja esta cadastrado.');
+    error.status = 409;
+    throw error;
+  }
+
+  store.contacts.push(contact);
+  writeFileStore(store);
+  return contact;
+}
+
+async function updateContact(id, payload) {
+  const db = await getDb();
+  const existing = db
+    ? await db.collection('contacts').findOne({ id })
+    : readFileStore().contacts.find((contact) => contact.id === id);
+
+  if (!existing) {
+    const error = new Error('Contato nao encontrado.');
+    error.status = 404;
+    throw error;
+  }
+
+  const phone = normalizePhone(payload.phone);
+  const tags = normalizeTags(payload.tags || payload.tag);
+  const updated = {
+    ...existing,
+    name: payload.name.trim(),
+    tag: tags.join(', '),
+    tags,
+    phone,
+    whatsappId: whatsappContactId(phone),
+    notes: (payload.notes || '').trim(),
+    updatedAt: new Date().toISOString()
+  };
+  delete updated._id;
+
+  if (db) {
+    await db.collection('contacts').updateOne({ id }, { $set: updated });
+    return updated;
+  }
+
+  const store = readFileStore();
+  const index = store.contacts.findIndex((contact) => contact.id === id);
+  store.contacts[index] = updated;
+  writeFileStore(store);
+  return updated;
+}
+
+async function deleteContact(id) {
+  const db = await getDb();
+
+  if (db) {
+    await db.collection('contacts').deleteOne({ id });
+    await db.collection('watchers').deleteMany({ contactId: id });
+    return;
+  }
+
+  const store = readFileStore();
+  store.contacts = store.contacts.filter((contact) => contact.id !== id);
+  store.watchers = store.watchers.filter((watcher) => watcher.contactId !== id);
+  writeFileStore(store);
+}
+
+async function listWatchers() {
+  const db = await getDb();
+  const watchers = db
+    ? await db.collection('watchers').find({}).sort({ createdAt: -1 }).toArray()
+    : readFileStore().watchers;
+
+  return watchers;
+}
+
+function statDateFromTimestamp(timestamp) {
+  return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+}
+
+function emptyAttendanceStat(watcher, date) {
+  return {
+    ...watcher,
+    date,
+    firstMessageAt: null,
+    lastMessageAt: null,
+    count: 0
+  };
+}
+
+async function recordAttendanceMessage(watcher, timestamp = Date.now()) {
+  if (!watcher?.id || !watcher?.groupId) return null;
+  const db = await getDb();
+  const date = statDateFromTimestamp(timestamp);
+  const key = { watcherId: watcher.id, date };
+  const base = {
+    watcherId: watcher.id,
+    contactId: watcher.contactId || null,
+    contactName: watcher.contactName || 'Participante',
+    contactPhone: watcher.contactPhone || '',
+    contactTag: watcher.contactTag || '',
+    participantId: watcher.participantId || null,
+    groupId: watcher.groupId,
+    groupName: watcher.groupName || 'Grupo',
+    date
+  };
+
+  if (db) {
+    const existing = await db.collection('attendanceStats').findOne(key);
+    await db.collection('attendanceStats').updateOne(
+      key,
+      {
+        $set: {
+          ...base,
+          firstMessageAt: existing?.firstMessageAt ? Math.min(existing.firstMessageAt, timestamp) : timestamp,
+          lastMessageAt: existing?.lastMessageAt ? Math.max(existing.lastMessageAt, timestamp) : timestamp,
+          updatedAt: new Date().toISOString()
+        },
+        $inc: { count: 1 },
+        $setOnInsert: { id: uuid(), createdAt: new Date().toISOString() }
+      },
+      { upsert: true }
+    );
+    return db.collection('attendanceStats').findOne(key);
+  }
+
+  const store = readFileStore();
+  const index = store.attendanceStats.findIndex((item) => item.watcherId === watcher.id && item.date === date);
+  if (index === -1) {
+    const stat = {
+      id: uuid(),
+      ...base,
+      firstMessageAt: timestamp,
+      lastMessageAt: timestamp,
+      count: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    store.attendanceStats.push(stat);
+    writeFileStore(store);
+    return stat;
+  }
+
+  store.attendanceStats[index] = {
+    ...store.attendanceStats[index],
+    ...base,
+    firstMessageAt: store.attendanceStats[index].firstMessageAt ? Math.min(store.attendanceStats[index].firstMessageAt, timestamp) : timestamp,
+    lastMessageAt: store.attendanceStats[index].lastMessageAt ? Math.max(store.attendanceStats[index].lastMessageAt, timestamp) : timestamp,
+    count: Number(store.attendanceStats[index].count || 0) + 1,
+    updatedAt: new Date().toISOString()
+  };
+  writeFileStore(store);
+  return store.attendanceStats[index];
+}
+
+async function listAttendanceStats(watchers = [], date = null) {
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))
+    ? date
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const watcherIds = watchers.map((watcher) => watcher.id);
+  const db = await getDb();
+  const saved = db
+    ? await db.collection('attendanceStats').find({ date: selectedDate, watcherId: { $in: watcherIds } }).toArray()
+    : readFileStore().attendanceStats.filter((item) => item.date === selectedDate && watcherIds.includes(item.watcherId));
+  const byWatcher = new Map(saved.map((item) => [item.watcherId, item]));
+
+  return watchers.map((watcher) => ({
+    ...emptyAttendanceStat(watcher, selectedDate),
+    ...(byWatcher.get(watcher.id) || {})
+  }));
+}
+
+async function createWatcher(payload) {
+  const db = await getDb();
+
+  if ((!payload.contactId && !payload.participantId) || !payload.groupId) {
+    const error = new Error('Selecione um contato/participante e um grupo para observar.');
+    error.status = 400;
+    throw error;
+  }
+
+  const contacts = await listContacts();
+  const contact = payload.contactId ? contacts.find((item) => item.id === payload.contactId) : null;
+
+  const now = new Date().toISOString();
+  const watcher = {
+    id: uuid(),
+    contactId: contact?.id || null,
+    contactName: contact?.name || payload.participantName || 'Participante',
+    contactPhone: contact?.phone || payload.participantPhone || '',
+    contactTag: contact?.tag || '',
+    participantId: payload.participantId || null,
+    groupId: payload.groupId,
+    groupName: payload.groupName || 'Grupo',
+    createdAt: now
+  };
+
+  if (db) {
+    const existing = await db.collection('watchers').findOne({
+      groupId: watcher.groupId,
+      $or: [
+        { contactId: watcher.contactId },
+        { participantId: watcher.participantId }
+      ]
+    });
+    if (existing) {
+      const error = new Error('Este contato/participante ja esta sendo observado neste grupo.');
+      error.status = 409;
+      throw error;
+    }
+
+    await db.collection('watchers').insertOne(watcher);
+    return watcher;
+  }
+
+  const store = readFileStore();
+  if (store.watchers.some((item) => item.groupId === watcher.groupId && (
+    (watcher.contactId && item.contactId === watcher.contactId)
+    || (watcher.participantId && item.participantId === watcher.participantId)
+  ))) {
+    const error = new Error('Este contato ja esta sendo observado neste grupo.');
+    error.status = 409;
+    throw error;
+  }
+
+  store.watchers.push(watcher);
+  writeFileStore(store);
+  return watcher;
+}
+
+async function deleteWatcher(id) {
+  const db = await getDb();
+
+  if (db) {
+    await db.collection('watchers').deleteOne({ id });
+    return;
+  }
+
+  const store = readFileStore();
+  store.watchers = store.watchers.filter((watcher) => watcher.id !== id);
+  writeFileStore(store);
+}
+
 async function listSchedules() {
   const db = await getDb();
   const schedules = db
@@ -267,8 +582,10 @@ async function createSchedule(payload, userId) {
     title: payload.title.trim(),
     botName: (payload.botName || 'SuperVISOR').trim(),
     message: payload.message.trim(),
-    groupIds: payload.groupIds,
+    groupIds: payload.groupIds || [],
     groupNames: payload.groupNames || [],
+    contactIds: payload.contactIds || [],
+    contactNames: payload.contactNames || [],
     time: payload.time,
     scheduleMode: payload.scheduleMode || 'weekly',
     days: payload.days || [],
@@ -305,8 +622,10 @@ async function updateSchedule(id, payload) {
     title: payload.title.trim(),
     botName: (payload.botName || 'SuperVISOR').trim(),
     message: payload.message.trim(),
-    groupIds: payload.groupIds,
+    groupIds: payload.groupIds || [],
     groupNames: payload.groupNames || [],
+    contactIds: payload.contactIds || [],
+    contactNames: payload.contactNames || [],
     time: payload.time,
     scheduleMode: payload.scheduleMode || 'weekly',
     days: payload.days || [],
@@ -415,19 +734,28 @@ async function listSendLogs() {
 module.exports = {
   addSendLog,
   createSchedule,
+  createContact,
+  createWatcher,
   createUser,
+  deleteContact,
   deleteSchedule,
+  deleteWatcher,
   deleteUser,
   getPublicUser,
   getSchedule,
   hasUsers,
   isOwner,
+  listAttendanceStats,
   listSchedules,
   listSendLogs,
+  listContacts,
+  listWatchers,
   listUsers,
   markScheduleRun,
   patchSchedule,
+  recordAttendanceMessage,
   updateUserPassword,
+  updateContact,
   updateUserProfile,
   updateSchedule,
   verifyUser
