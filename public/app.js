@@ -34,8 +34,11 @@ let state = {
   users: [],
   logs: [],
   editingId: null,
+  scheduleDraft: null,
   scheduleFilterType: 'all',
   scheduleFilterId: '',
+  scheduleFilterDay: 'all',
+  scheduleFilterDate: '',
   scheduleGroupSearch: '',
   scheduleContactSearch: '',
   editingContactId: null,
@@ -342,7 +345,7 @@ function renderAuth() {
           <p class="muted">${isSetup ? 'Configure o primeiro acesso do painel.' : 'Acesse o dashboard do SuperVISOR'}</p>
         </div>
         ${isSetup ? '<label>Nome<input name="name" required minlength="2" autocomplete="name"></label>' : ''}
-        <label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="seu@email.com"></label>
+        <label>E-mail<input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="seu@email.com"></label>
         <label>Senha<input name="password" type="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="********"></label>
         <button class="primary" type="submit">${isSetup ? 'Criar e entrar' : 'Entrar'}</button>
       </form>
@@ -706,13 +709,15 @@ function whatsappTab() {
 
 function schedulesTab() {
   const editing = state.schedules.find((item) => item.id === state.editingId);
+  const draft = state.scheduleDraft;
+  const formSource = editing || draft;
   const schedules = filteredSchedules();
   const dateScope = editing?.id || 'new';
   if (state.selectedDatesScheduleId !== dateScope) {
-    state.selectedDates = [...(editing?.specificDates || [])];
+    state.selectedDates = [...(formSource?.specificDates || [])];
     state.selectedDatesScheduleId = dateScope;
   }
-  const selectedDates = getSelectedDates(editing);
+  const selectedDates = getSelectedDates(formSource);
   return `
     <div class="topbar">
       <div>
@@ -725,26 +730,26 @@ function schedulesTab() {
       <section class="panel">
         <h2>${editing ? 'Editar mensagem' : 'Nova mensagem'}</h2>
         <form class="form" id="scheduleForm">
-          <label>Título<input name="title" required minlength="2" value="${escapeHtml(editing?.title || '')}"></label>
-          <label>Nome do bot<input name="botName" minlength="2" placeholder="SuperVISOR" value="${escapeHtml(editing?.botName || '')}"></label>
-          <label>Mensagem<textarea name="message" required>${escapeHtml(editing?.message || '')}</textarea></label>
+          <label>Título<input name="title" required minlength="2" value="${escapeHtml(formSource?.title || '')}"></label>
+          <label>Nome do bot<input name="botName" minlength="2" placeholder="SuperVISOR" value="${escapeHtml(formSource?.botName || '')}"></label>
+          <label>Mensagem<textarea name="message" required>${escapeHtml(formSource?.message || '')}</textarea></label>
           <div class="split">
-            <label>Horário<input name="time" type="time" required value="${editing?.time || '08:00'}"></label>
+            <label>Horário<input name="time" type="time" required value="${formSource?.time || '08:00'}"></label>
             <label>Status
               <select name="active">
-                <option value="true" ${editing?.active !== false ? 'selected' : ''}>Ativo</option>
-                <option value="false" ${editing?.active === false ? 'selected' : ''}>Pausado</option>
+                <option value="true" ${formSource?.active !== false ? 'selected' : ''}>Ativo</option>
+                <option value="false" ${formSource?.active === false ? 'selected' : ''}>Pausado</option>
               </select>
             </label>
           </div>
           <label>Tipo de agendamento
             <select name="scheduleMode">
-              <option value="weekly" ${(editing?.scheduleMode || 'weekly') === 'weekly' ? 'selected' : ''}>Dias da semana</option>
-              <option value="dates" ${editing?.scheduleMode === 'dates' ? 'selected' : ''}>Datas específicas</option>
+              <option value="weekly" ${(formSource?.scheduleMode || 'weekly') === 'weekly' ? 'selected' : ''}>Dias da semana</option>
+              <option value="dates" ${formSource?.scheduleMode === 'dates' ? 'selected' : ''}>Datas específicas</option>
             </select>
           </label>
           <label>Dias da semana</label>
-          <div class="days">${Object.entries(dayLabels).map(([key, label]) => dayCheckbox(key, label, editing)).join('')}</div>
+          <div class="days">${Object.entries(dayLabels).map(([key, label]) => dayCheckbox(key, label, formSource)).join('')}</div>
           <label>Datas específicas</label>
           <div class="date-picker-row">
             <input id="specificDatePicker" type="date">
@@ -759,16 +764,16 @@ function schedulesTab() {
             <span>⌕</span>
             <input id="scheduleGroupSearch" placeholder="Buscar grupo pelo nome" value="${escapeHtml(state.scheduleGroupSearch)}">
           </label>
-          ${groupsList(true, editing)}
+          ${groupsList(true, formSource)}
           <label>Contatos individuais</label>
           <label class="search-field schedule-search">
             <span>⌕</span>
             <input id="scheduleContactSearch" placeholder="Buscar contato por nome, número ou tag" value="${escapeHtml(state.scheduleContactSearch)}">
           </label>
-          ${contactsList(true, editing)}
+          ${contactsList(true, formSource)}
           <div class="row">
             <button class="primary" type="submit">${editing ? 'Salvar alterações' : 'Criar agendamento'}</button>
-            ${editing ? '<button class="secondary" type="button" id="cancelEdit">Cancelar</button>' : ''}
+            ${editing || draft ? '<button class="secondary" type="button" id="cancelEdit">Cancelar</button>' : ''}
           </div>
         </form>
       </section>
@@ -791,6 +796,17 @@ function schedulesTab() {
                 <option value="">${state.scheduleFilterType === 'all' ? 'Todos' : 'Escolha um destino'}</option>
                 ${scheduleFilterOptions()}
               </select>
+            </label>
+          </div>
+          <div class="split">
+            <label>Dia da semana
+              <select id="scheduleFilterDay">
+                <option value="all" ${state.scheduleFilterDay === 'all' ? 'selected' : ''}>Todos os dias</option>
+                ${Object.entries(dayLabels).map(([key, label]) => `<option value="${key}" ${state.scheduleFilterDay === key ? 'selected' : ''}>${label}</option>`).join('')}
+              </select>
+            </label>
+            <label>Data específica
+              <input id="scheduleFilterDate" type="date" value="${escapeHtml(state.scheduleFilterDate)}">
             </label>
           </div>
         </section>
@@ -817,15 +833,24 @@ function scheduleFilterOptions() {
 }
 
 function filteredSchedules() {
-  if (state.scheduleFilterType === 'group' && state.scheduleFilterId) {
-    return state.schedules.filter((schedule) => (schedule.groupIds || []).includes(state.scheduleFilterId));
-  }
-
-  if (state.scheduleFilterType === 'contact' && state.scheduleFilterId) {
-    return state.schedules.filter((schedule) => (schedule.contactIds || []).includes(state.scheduleFilterId));
-  }
-
-  return state.schedules;
+  return state.schedules.filter((schedule) => {
+    const matchesDestination = (
+      state.scheduleFilterType === 'all'
+      || !state.scheduleFilterId
+      || (state.scheduleFilterType === 'group' && (schedule.groupIds || []).includes(state.scheduleFilterId))
+      || (state.scheduleFilterType === 'contact' && (schedule.contactIds || []).includes(state.scheduleFilterId))
+    );
+    const hasDayFilter = state.scheduleFilterDay !== 'all';
+    const hasDateFilter = Boolean(state.scheduleFilterDate);
+    const matchesDay = hasDayFilter && (
+      (schedule.scheduleMode || 'weekly') === 'weekly' && (schedule.days || []).includes(state.scheduleFilterDay)
+    );
+    const matchesDate = hasDateFilter && (
+      schedule.scheduleMode === 'dates' && (schedule.specificDates || []).includes(state.scheduleFilterDate)
+    );
+    const matchesPeriod = (!hasDayFilter && !hasDateFilter) || matchesDay || matchesDate;
+    return matchesDestination && matchesPeriod;
+  });
 }
 
 function getSelectedDates(editing) {
@@ -997,7 +1022,7 @@ function conversationsTab() {
       <button class="${state.conversationFilter === 'contacts' ? 'active' : ''}" data-conversation-filter="contacts" type="button">Contatos</button>
       <button class="${state.conversationFilter === 'unread' ? 'active' : ''}" data-conversation-filter="unread" type="button">Não lidas</button>
     </div>
-    <section class="chat-shell">
+    <section class="chat-shell ${state.selectedConversationId ? 'has-selected-conversation' : ''}">
       <aside class="chat-list">
         ${conversations.length ? conversations.map(conversationItem).join('') : '<div class="empty">Nenhuma conversa neste filtro.</div>'}
       </aside>
@@ -1086,6 +1111,7 @@ function conversationMessages() {
     : `<div class="conversation-avatar">${conversation?.isGroup ? 'G' : 'C'}</div>`;
   return `
     <div class="conversation-header">
+      <button class="chat-back-button" id="mobileBackToChats" type="button">←</button>
       ${avatar}
       <div>
         <strong>${escapeHtml(conversation?.name || 'Conversa')}</strong>
@@ -1474,6 +1500,7 @@ function scheduleItem(schedule) {
       </div>
       <div class="row schedule-actions">
         <button class="secondary" data-edit="${schedule.id}">Editar</button>
+        <button class="secondary" data-reuse="${schedule.id}">Reaproveitar</button>
         <button class="secondary" data-toggle="${schedule.id}">${schedule.active ? 'Pausar' : 'Ativar'}</button>
         <button class="secondary" data-send="${schedule.id}">Enviar agora</button>
         <button class="danger" data-delete="${schedule.id}">Remover</button>
@@ -1495,6 +1522,14 @@ function bindContent() {
   });
   document.querySelector('#scheduleFilterId')?.addEventListener('change', (event) => {
     state.scheduleFilterId = event.target.value;
+    renderContent();
+  });
+  document.querySelector('#scheduleFilterDay')?.addEventListener('change', (event) => {
+    state.scheduleFilterDay = event.target.value;
+    renderContent();
+  });
+  document.querySelector('#scheduleFilterDate')?.addEventListener('change', (event) => {
+    state.scheduleFilterDate = event.target.value;
     renderContent();
   });
   document.querySelector('#contactForm')?.addEventListener('submit', saveContact);
@@ -1530,6 +1565,11 @@ function bindContent() {
   });
   document.querySelector('.messages')?.addEventListener('scroll', toggleScrollBottomButton);
   document.querySelector('#scrollMessagesBottom')?.addEventListener('click', scrollMessagesToBottom);
+  document.querySelector('#mobileBackToChats')?.addEventListener('click', () => {
+    state.selectedConversationId = null;
+    state.messages = [];
+    renderContent();
+  });
   document.querySelectorAll('[data-conversation-filter]').forEach((button) => {
     button.addEventListener('click', () => {
       state.conversationFilter = button.dataset.conversationFilter;
@@ -1620,6 +1660,7 @@ function bindContent() {
   });
   document.querySelector('#cancelEdit')?.addEventListener('click', () => {
     state.editingId = null;
+    state.scheduleDraft = null;
     state.selectedDates = [];
     state.selectedDatesScheduleId = null;
     renderContent();
@@ -1634,10 +1675,14 @@ function bindContent() {
   document.querySelectorAll('[data-edit]').forEach((button) => {
     button.addEventListener('click', () => {
       state.editingId = button.dataset.edit;
+      state.scheduleDraft = null;
       const editing = state.schedules.find((item) => item.id === state.editingId);
       state.selectedDates = [...(editing?.specificDates || [])];
       renderContent();
     });
+  });
+  document.querySelectorAll('[data-reuse]').forEach((button) => {
+    button.addEventListener('click', () => reuseSchedule(button.dataset.reuse));
   });
   document.querySelectorAll('[data-toggle]').forEach((button) => {
     button.addEventListener('click', () => actionSchedule(`/api/schedules/${button.dataset.toggle}/toggle`, 'PATCH'));
@@ -1664,6 +1709,25 @@ function filterScheduleTargets() {
   document.querySelectorAll('[data-schedule-contact]').forEach((item) => {
     item.hidden = Boolean(contactQuery) && !item.dataset.scheduleContact.includes(contactQuery);
   });
+}
+
+function reuseSchedule(scheduleId) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId);
+  if (!schedule) return;
+  state.editingId = null;
+  state.scheduleDraft = {
+    ...schedule,
+    title: `${schedule.title || 'Agendamento'} (cópia)`,
+    active: true,
+    days: [...(schedule.days || [])],
+    specificDates: [...(schedule.specificDates || [])],
+    groupIds: [...(schedule.groupIds || [])],
+    contactIds: [...(schedule.contactIds || [])]
+  };
+  state.selectedDates = [...(state.scheduleDraft.specificDates || [])];
+  state.selectedDatesScheduleId = 'new';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  renderContent();
 }
 
 function addSpecificDate() {
@@ -1816,6 +1880,7 @@ async function saveSchedule(event) {
     const method = state.editingId ? 'PUT' : 'POST';
     await api(path, { method, body: JSON.stringify(body) });
     state.editingId = null;
+    state.scheduleDraft = null;
     state.selectedDates = [];
     state.selectedDatesScheduleId = null;
     await loadDashboardData();
