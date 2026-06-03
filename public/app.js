@@ -480,6 +480,14 @@ function restoreReplyDraft(draft) {
   if (!form) return;
   if (form.elements.message) form.elements.message.value = draft.message;
   if (form.elements.replyBotName) form.elements.replyBotName.value = draft.replyBotName;
+  autoResizeReplyTextarea();
+}
+
+function autoResizeReplyTextarea() {
+  const textarea = document.querySelector('#replyForm textarea[name="message"]');
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
 }
 
 function ensureConversationPolling() {
@@ -1147,7 +1155,7 @@ function conversationMessages() {
           ${Array.from({ length: 18 }, (_, index) => `<i style="--level:${(index % 5) + 2}"></i>`).join('')}
         </div>
       </div>
-      <input name="message" placeholder="Digite uma resposta" autocomplete="off">
+      <textarea class="reply-message" name="message" placeholder="Digite uma resposta" rows="1" autocomplete="off"></textarea>
       <button class="primary" type="submit">Enviar</button>
     </form>
   `;
@@ -1600,13 +1608,19 @@ function bindContent() {
     state.replyBotName = event.target.value;
     localStorage.setItem('replyBotName', state.replyBotName);
   });
+  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('input', autoResizeReplyTextarea);
+  requestAnimationFrame(autoResizeReplyTextarea);
   document.querySelector('#attachButton')?.addEventListener('click', () => document.querySelector('#replyAttachment')?.click());
   document.querySelector('#recordAudioButton')?.addEventListener('click', toggleAudioRecording);
   document.querySelectorAll('[data-emoji]').forEach((button) => {
     button.addEventListener('click', () => {
-      const input = document.querySelector('#replyForm input[name="message"]');
+      const input = document.querySelector('#replyForm textarea[name="message"]');
       if (input) {
-        input.value += button.dataset.emoji;
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        input.value = `${input.value.slice(0, start)}${button.dataset.emoji}${input.value.slice(end)}`;
+        input.selectionStart = input.selectionEnd = start + button.dataset.emoji.length;
+        autoResizeReplyTextarea();
         input.focus();
       }
     });

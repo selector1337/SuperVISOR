@@ -1936,6 +1936,19 @@ select:focus {
   font-weight: 900;
 }
 
+.reply-message {
+  min-height: 42px;
+  max-height: 160px;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
 .message-actions {
   display: flex;
   gap: 8px;
@@ -2307,7 +2320,7 @@ select:focus {
     grid-column: 1 / -1;
   }
 
-  .reply-box input[name="message"] {
+  .reply-box textarea[name="message"] {
     grid-column: 1 / -2;
     min-height: 44px;
   }
@@ -2599,7 +2612,7 @@ select:focus {
   }
 
   .reply-box .reply-name,
-  .reply-box input[name="message"],
+  .reply-box textarea[name="message"],
   .reply-box .primary {
     grid-column: 1 / -1;
   }
