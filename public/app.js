@@ -145,6 +145,7 @@ let audioRecordingTimer = null;
 let audioRecordingContext = null;
 let audioRecordingAnimation = null;
 let conversationRequestId = 0;
+let lastReplyInputAt = 0;
 
 const socket = io();
 socket.on('whatsapp:state', (payload) => {
@@ -166,7 +167,7 @@ socket.on('whatsapp:message', async (message) => {
   if (state.tab === 'conversations') {
     const wasNearBottom = isMessagesNearBottom();
     await refreshConversations({ silent: true, preserveScroll: true, preserveDraft: true });
-    if (state.selectedConversationId === chatId) {
+    if (state.selectedConversationId === chatId && !isReplyEditingActive()) {
       await openConversation(chatId, { scrollToBottom: wasNearBottom, preserveDraft: true });
     } else {
       toast(notification);
@@ -490,6 +491,13 @@ function autoResizeReplyTextarea() {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
 }
 
+function isReplyEditingActive() {
+  const textarea = document.querySelector('#replyForm textarea[name="message"]');
+  if (!textarea) return false;
+  const recentlyTyped = Date.now() - lastReplyInputAt < 2500;
+  return document.activeElement === textarea || recentlyTyped;
+}
+
 function ensureConversationPolling() {
   if (conversationPollTimer || !state.user) return;
   conversationPollTimer = setInterval(pollConversations, 7000);
@@ -510,7 +518,7 @@ async function pollConversations() {
   await refreshConversations({ silent: true, preserveScroll: true, preserveDraft: true });
   const selectedAfter = state.conversations.find((conversation) => conversation.id === selectedId);
   const nextTimestamp = Number(selectedAfter?.timestamp || 0);
-  if (selectedId && state.selectedConversationId === selectedId && nextTimestamp > previousTimestamp) {
+  if (selectedId && state.selectedConversationId === selectedId && nextTimestamp > previousTimestamp && !isReplyEditingActive()) {
     await openConversation(selectedId, { scrollToBottom: shouldStickToBottom, preserveDraft: true });
   }
 }
@@ -1608,7 +1616,10 @@ function bindContent() {
     state.replyBotName = event.target.value;
     localStorage.setItem('replyBotName', state.replyBotName);
   });
-  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('input', autoResizeReplyTextarea);
+  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('input', () => {
+    lastReplyInputAt = Date.now();
+    autoResizeReplyTextarea();
+  });
   requestAnimationFrame(autoResizeReplyTextarea);
   document.querySelector('#attachButton')?.addEventListener('click', () => document.querySelector('#replyAttachment')?.click());
   document.querySelector('#recordAudioButton')?.addEventListener('click', toggleAudioRecording);
@@ -1620,6 +1631,7 @@ function bindContent() {
         const end = input.selectionEnd ?? input.value.length;
         input.value = `${input.value.slice(0, start)}${button.dataset.emoji}${input.value.slice(end)}`;
         input.selectionStart = input.selectionEnd = start + button.dataset.emoji.length;
+        lastReplyInputAt = Date.now();
         autoResizeReplyTextarea();
         input.focus();
       }
