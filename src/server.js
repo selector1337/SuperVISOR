@@ -551,3 +551,31 @@ server.listen(PORT, () => {
   whatsapp.initWhatsApp(io);
   scheduler.startScheduler();
 });
+
+let shutdownStarted = false;
+
+async function shutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  console.log(`Recebido ${signal}. Encerrando o SuperVISOR com segurança...`);
+
+  const forceExit = setTimeout(() => {
+    console.error('Tempo limite de encerramento atingido. Finalizando processo.');
+    process.exit(1);
+  }, 18000);
+  forceExit.unref();
+
+  server.close();
+  try {
+    await whatsapp.shutdownWhatsApp();
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (error) {
+    console.error('Erro durante encerramento do SuperVISOR:', error);
+    clearTimeout(forceExit);
+    process.exit(1);
+  }
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));

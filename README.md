@@ -49,7 +49,7 @@ Esta aplicação usa `whatsapp-web.js`, que automatiza o WhatsApp Web. Use apena
 - Ubuntu 22.04/24.04 ou Debian equivalente.
 - Node.js LTS.
 - Nginx, se for publicar com domínio.
-- Chromium ou Google Chrome.
+- Chrome baixado pelo Puppeteer ou Google Chrome instalado sem Snap. O Chromium Snap não é recomendado sob PM2/systemd.
 - Dependências de sistema para o Puppeteer/Chromium.
 
 ## Instalação no Windows
@@ -174,28 +174,40 @@ Se responder JSON, o app subiu corretamente.
 sudo npm install -g pm2
 ```
 
-2. Inicie o SuperVISOR:
+2. Instale o Chrome gerenciado pelo projeto:
 
 ```bash
 cd /var/www/supervisor
-pm2 start src/server.js --name supervisor
+npm run browser:install
+```
+
+3. Inicie o SuperVISOR com a configuração de instância única:
+
+```bash
+cd /var/www/supervisor
+pm2 delete supervisor 2>/dev/null || true
+pm2 start ecosystem.config.cjs --update-env
 pm2 save
 pm2 startup
 ```
 
-3. Veja logs:
+O arquivo `ecosystem.config.cjs` força modo `fork` com uma única instância. Não use modo cluster ou mais de uma instância, pois dois Chromes não podem compartilhar a mesma sessão `.wwebjs_auth`.
+
+4. Veja logs:
 
 ```bash
 pm2 logs supervisor
 ```
 
-4. Reinicie depois de atualizações:
+5. Recarregue depois de atualizações:
 
 ```bash
 cd /var/www/supervisor
 git pull
-npm install
-pm2 restart supervisor
+npm ci
+npm run browser:install
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
 ```
 
 ## Configurar Nginx Com Domínio
@@ -276,7 +288,10 @@ A aplicação possui algumas proteções para manter a conexão mais estável:
 - tentativa automática de reconexão quando o WhatsApp Web cai;
 - limpeza de locks antigos do Chromium quando a sessão fica travada;
 - registro do PID do navegador para encerrar instâncias antigas com mais segurança;
-- fallback para outro Chrome/Edge instalado quando o Chromium baixado pelo Puppeteer é bloqueado;
+- uso preferencial do Chrome baixado pelo Puppeteer e rejeição explícita do Chromium Snap em servidores PM2/systemd;
+- fallback para outro Chrome/Edge compatível instalado quando o navegador baixado pelo Puppeteer é bloqueado;
+- encerramento gracioso do navegador antes de reinícios do PM2, reduzindo locks e processos órfãos;
+- configuração PM2 em modo `fork` com uma única instância para impedir duas sessões concorrentes;
 - reinício sem `logout()` quando a intenção é apenas recuperar a conexão;
 - nova tentativa automática quando a inicialização do WhatsApp falha por erro temporário.
 
@@ -305,8 +320,10 @@ No servidor:
 ```bash
 cd /var/www/supervisor
 git pull
-npm install
-pm2 restart supervisor
+npm ci
+npm run browser:install
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
 ```
 
 ## Versão

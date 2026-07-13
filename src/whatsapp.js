@@ -14,22 +14,61 @@ function bundledBrowserPath() {
   }
 }
 
-const browserPaths = [
-  process.env.CHROME_PATH,
-  bundledBrowserPath(),
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  '/usr/bin/google-chrome',
-  '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser'
-].filter(Boolean);
 const failedBrowserPaths = new Set();
 
+function browserPaths() {
+  return [
+    process.env.CHROME_PATH,
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    bundledBrowserPath(),
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    '/opt/google/chrome/chrome',
+    '/opt/google/chrome/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  ].filter(Boolean);
+}
+
+function filePrefix(filePath, maxBytes = 4096) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = fs.readSync(descriptor, buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } catch (error) {
+    return '';
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function isSnapBrowser(browserPath) {
+  if (process.platform !== 'linux' || !browserPath) return false;
+  const normalized = String(browserPath).replace(/\\/g, '/').toLowerCase();
+  if (normalized.includes('/snap/') || normalized.startsWith('/snap/bin/')) return true;
+  const wrapper = filePrefix(browserPath).toLowerCase();
+  return wrapper.includes('/snap/bin/chromium')
+    || wrapper.includes('snap run chromium')
+    || wrapper.includes('/usr/bin/snap');
+}
+
 function getBrowserPath() {
-  return browserPaths.find((browserPath) => !failedBrowserPaths.has(browserPath) && fs.existsSync(browserPath));
+  for (const browserPath of browserPaths()) {
+    if (failedBrowserPaths.has(browserPath) || !fs.existsSync(browserPath)) continue;
+    if (isSnapBrowser(browserPath)) {
+      failedBrowserPaths.add(browserPath);
+      debugLog('Ignorando Chromium Snap incompatível com PM2/systemd', browserPath);
+      continue;
+    }
+    return browserPath;
+  }
+  return null;
 }
 
 let io;
@@ -44,6 +83,7 @@ let healthTimer = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let manualDisconnectUntil = 0;
+let isShuttingDown = false;
 let recentIncomingMessages = [];
 const avatarCache = new Map();
 const MEDIA_DOWNLOAD_LIMIT = 8;
@@ -233,7 +273,13 @@ function isSessionAlreadyRunningError(error) {
 
 function isBrowserSpawnError(error) {
   const message = String(error?.message || '').toLowerCase();
-  return message.includes('spawn eperm') || message.includes('spawn eacces') || message.includes('permission denied');
+  return message.includes('spawn eperm')
+    || message.includes('spawn eacces')
+    || message.includes('permission denied')
+    || message.includes('cannot start document portal')
+    || message.includes('snap.chromium.chromium')
+    || message.includes('/run/user/')
+    || message.includes('failed to launch the browser process');
 }
 
 function startClient() {
@@ -245,7 +291,7 @@ function startClient() {
 }
 
 async function startClientInternal({ recovered = false } = {}) {
-  if (isInitializing) return;
+  if (isInitializing || isShuttingDown) return;
   isInitializing = true;
   status = 'loading';
   qrCodeDataUrl = null;
@@ -253,6 +299,17 @@ async function startClientInternal({ recovered = false } = {}) {
   const browserPath = getBrowserPath();
   debugLog('Iniciando cliente WhatsApp', `browser=${browserPath || 'bundled'}`);
   emitState();
+
+  if (!browserPath) {
+    status = 'error';
+    lastError = process.platform === 'linux'
+      ? 'Chrome compatível não encontrado. O Chromium Snap não funciona de forma confiável sob PM2/systemd. Execute npm run browser:install na pasta da aplicação e reinicie o processo.'
+      : 'Chrome compatível não encontrado. Execute npm run browser:install na pasta da aplicação e reinicie o processo.';
+    debugLog('Nenhum navegador compatível disponível para o WhatsApp.');
+    isInitializing = false;
+    emitState();
+    return;
+  }
 
   if (!recovered && readBrowserPid()) {
     await recoverSessionLock('startup com PID antigo registrado');
@@ -269,6 +326,10 @@ async function startClientInternal({ recovered = false } = {}) {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
+        '--disable-background-networking',
+        '--disable-component-update',
+        '--disable-sync',
+        '--metrics-recording-only',
         '--no-first-run',
         '--disable-extensions'
       ]
@@ -450,7 +511,7 @@ async function startClientInternal({ recovered = false } = {}) {
 }
 
 function scheduleReconnect(reason = 'reconnect') {
-  if (reconnectTimer || isInitializing || startPromise) return;
+  if (isShuttingDown || reconnectTimer || isInitializing || startPromise) return;
   reconnectAttempts += 1;
   const delayMs = Math.min(30000, 3000 * reconnectAttempts);
   debugLog('Agendando reconexão WhatsApp', `${reason} em ${delayMs}ms`);
@@ -1237,6 +1298,38 @@ async function disconnectWhatsApp({ clearSession = false } = {}) {
   startClient();
 }
 
+async function shutdownWhatsApp() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  manualDisconnectUntil = Number.POSITIVE_INFINITY;
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (healthTimer) {
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+
+  const currentClient = client;
+  client = null;
+  status = 'disconnected';
+  qrCodeDataUrl = null;
+
+  if (currentClient) {
+    try {
+      await withTimeout(currentClient.destroy(), 8000, 'Tempo esgotado ao encerrar o cliente WhatsApp.');
+    } catch (error) {
+      debugLog('Encerramento normal do WhatsApp falhou', error.message);
+    }
+    await closeClientBrowser(currentClient);
+  }
+
+  cleanupChromiumLocks();
+  debugLog('Cliente WhatsApp encerrado para desligamento do processo.');
+}
+
 module.exports = {
   disconnectWhatsApp,
   deleteConversation,
@@ -1253,5 +1346,6 @@ module.exports = {
   sendMessage,
   sendMessageWithMedia,
   sendMessageToTargets,
-  sendMessageToGroups
+  sendMessageToGroups,
+  shutdownWhatsApp
 };

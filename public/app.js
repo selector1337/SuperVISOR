@@ -146,6 +146,7 @@ let audioRecordingContext = null;
 let audioRecordingAnimation = null;
 let conversationRequestId = 0;
 let lastReplyInputAt = 0;
+let replyCompositionActive = false;
 
 const socket = io();
 socket.on('whatsapp:state', (payload) => {
@@ -428,6 +429,7 @@ function renderShell() {
 function renderContent() {
   const target = document.querySelector('#mainContent');
   if (!target) return;
+  if (state.tab !== 'conversations') replyCompositionActive = false;
   updateNav();
   updateLiveStatus();
   target.innerHTML = currentTab();
@@ -468,10 +470,14 @@ function restoreConversationScroll() {
 function captureReplyDraft() {
   const form = document.querySelector('#replyForm');
   if (!form) return null;
+  const messageInput = form.elements.message;
   return {
     conversationId: state.selectedConversationId,
-    message: form.elements.message?.value || '',
-    replyBotName: form.elements.replyBotName?.value || state.replyBotName
+    message: messageInput?.value || '',
+    replyBotName: form.elements.replyBotName?.value || state.replyBotName,
+    selectionStart: messageInput?.selectionStart,
+    selectionEnd: messageInput?.selectionEnd,
+    wasFocused: document.activeElement === messageInput
   };
 }
 
@@ -479,7 +485,13 @@ function restoreReplyDraft(draft) {
   if (!draft || draft.conversationId !== state.selectedConversationId) return;
   const form = document.querySelector('#replyForm');
   if (!form) return;
-  if (form.elements.message) form.elements.message.value = draft.message;
+  if (form.elements.message) {
+    form.elements.message.value = draft.message;
+    if (Number.isInteger(draft.selectionStart) && Number.isInteger(draft.selectionEnd)) {
+      form.elements.message.setSelectionRange(draft.selectionStart, draft.selectionEnd);
+    }
+    if (draft.wasFocused) form.elements.message.focus({ preventScroll: true });
+  }
   if (form.elements.replyBotName) form.elements.replyBotName.value = draft.replyBotName;
   autoResizeReplyTextarea();
 }
@@ -495,7 +507,37 @@ function isReplyEditingActive() {
   const textarea = document.querySelector('#replyForm textarea[name="message"]');
   if (!textarea) return false;
   const recentlyTyped = Date.now() - lastReplyInputAt < 2500;
-  return document.activeElement === textarea || recentlyTyped;
+  const hasAttachment = Boolean(document.querySelector('#replyAttachment')?.files?.length);
+  return replyCompositionActive
+    || document.activeElement === textarea
+    || Boolean(textarea.value)
+    || hasAttachment
+    || recentlyTyped;
+}
+
+function renderConversationMessagesOnly({ scrollToBottom = false } = {}) {
+  const currentMessages = document.querySelector('.messages');
+  if (!currentMessages || !state.selectedConversationId) return false;
+
+  const previousTop = currentMessages.scrollTop;
+  const previousHeight = currentMessages.scrollHeight;
+  const template = document.createElement('template');
+  template.innerHTML = conversationMessages().trim();
+  const nextMessages = template.content.querySelector('.messages');
+  if (!nextMessages) return false;
+
+  currentMessages.replaceChildren(...nextMessages.childNodes);
+  bindMessageContentActions();
+
+  requestAnimationFrame(() => {
+    if (scrollToBottom) {
+      scrollMessagesToBottom();
+      return;
+    }
+    currentMessages.scrollTop = previousTop + Math.max(0, currentMessages.scrollHeight - previousHeight);
+    toggleScrollBottomButton();
+  });
+  return true;
 }
 
 function ensureConversationPolling() {
@@ -1620,6 +1662,14 @@ function bindContent() {
     lastReplyInputAt = Date.now();
     autoResizeReplyTextarea();
   });
+  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('compositionstart', () => {
+    replyCompositionActive = true;
+  });
+  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('compositionend', () => {
+    replyCompositionActive = false;
+    lastReplyInputAt = Date.now();
+    autoResizeReplyTextarea();
+  });
   requestAnimationFrame(autoResizeReplyTextarea);
   document.querySelector('#attachButton')?.addEventListener('click', () => document.querySelector('#replyAttachment')?.click());
   document.querySelector('#recordAudioButton')?.addEventListener('click', toggleAudioRecording);
@@ -1637,15 +1687,7 @@ function bindContent() {
       }
     });
   });
-  document.querySelectorAll('[data-delete-message]').forEach((button) => {
-    button.addEventListener('click', () => deleteMessage(button.dataset.deleteMessage));
-  });
-  document.querySelectorAll('[data-open-image]').forEach((button) => {
-    button.addEventListener('click', () => openImagePreview(button.dataset.openImage, button.dataset.imageName));
-  });
-  document.querySelectorAll('[data-open-pdf]').forEach((button) => {
-    button.addEventListener('click', () => openPdfPreview(button.dataset.openPdf, button.dataset.pdfName));
-  });
+  bindMessageContentActions();
   document.querySelector('#deleteConversation')?.addEventListener('click', deleteSelectedConversation);
   document.querySelector('#startConversationForm')?.addEventListener('submit', startConversation);
   document.querySelector('#watcherForm')?.addEventListener('submit', saveWatcher);
@@ -1723,6 +1765,18 @@ function bindContent() {
     });
   });
   filterScheduleTargets();
+}
+
+function bindMessageContentActions() {
+  document.querySelectorAll('[data-delete-message]').forEach((button) => {
+    button.addEventListener('click', () => deleteMessage(button.dataset.deleteMessage));
+  });
+  document.querySelectorAll('[data-open-image]').forEach((button) => {
+    button.addEventListener('click', () => openImagePreview(button.dataset.openImage, button.dataset.imageName));
+  });
+  document.querySelectorAll('[data-open-pdf]').forEach((button) => {
+    button.addEventListener('click', () => openPdfPreview(button.dataset.openPdf, button.dataset.pdfName));
+  });
 }
 
 function filterScheduleTargets() {
@@ -1993,7 +2047,7 @@ async function refreshConversations({ silent = false, preserveScroll = false, pr
       const acknowledged = Number(state.readUnreadCounts[conversation.id] || 0);
       return total + Math.max(0, current - Math.max(previous, acknowledged));
     }, 0);
-    if (state.tab === 'conversations' && preserveScroll && renderConversationListOnly()) {
+    if (state.tab === 'conversations' && (preserveScroll || isReplyEditingActive()) && renderConversationListOnly()) {
       // Keep the open chat stable; only the left list needs polling updates.
     } else {
       renderContent();
@@ -2029,6 +2083,7 @@ async function openConversation(conversationId, { scrollToBottom = true, preserv
   try {
     const requestId = ++conversationRequestId;
     const draft = preserveDraft ? captureReplyDraft() : null;
+    if (state.selectedConversationId !== conversationId) replyCompositionActive = false;
     const currentConversation = state.conversations.find((conversation) => conversation.id === conversationId);
     const currentUnread = Number(currentConversation?.unreadCount || 0);
     state.selectedConversationId = conversationId;
@@ -2046,10 +2101,17 @@ async function openConversation(conversationId, { scrollToBottom = true, preserv
     }
     const data = await api(`/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=24`);
     if (requestId !== conversationRequestId || state.selectedConversationId !== conversationId) return;
+    const liveDraft = captureReplyDraft();
+    const keepComposer = liveDraft?.conversationId === conversationId && isReplyEditingActive();
     state.messages = data.messages;
     state.shouldScrollMessages = scrollToBottom;
+    if (keepComposer && renderConversationMessagesOnly({ scrollToBottom })) {
+      state.shouldScrollMessages = false;
+      return;
+    }
     renderContent();
-    if (draft) requestAnimationFrame(() => restoreReplyDraft(draft));
+    const draftToRestore = liveDraft || draft;
+    if (draftToRestore) requestAnimationFrame(() => restoreReplyDraft(draftToRestore));
   } catch (error) {
     toast(error.message);
   }
