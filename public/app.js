@@ -74,6 +74,9 @@ const changelog = [
     version: '1.2',
     title: 'Central de integrações gUMperformance',
     items: [
+      'Correção definitiva do campo de resposta para impedir perda de letras durante atualizações em tempo real.',
+      'Leitura resiliente das mensagens para que um item incompatível não impeça a abertura da conversa.',
+      'Carregamento de fotos de perfil aprimorado, com suporte aos identificadores atuais do WhatsApp e cache controlado.',
       'Correção de compatibilidade na leitura de grupos e conversas para impedir que um chat inconsistente bloqueie toda a sincronização.',
       'Novo menu Integrações exclusivo para o usuário principal.',
       'Monitoramento separado dos ambientes gUMperformance e gUMperformance beta.',
@@ -465,6 +468,15 @@ function renderContent() {
   if (state.tab !== 'conversations') replyCompositionActive = false;
   updateNav();
   updateLiveStatus();
+
+  const activeReply = document.querySelector('#replyForm textarea[name="message"]');
+  const composerBelongsToSelection = activeReply?.dataset.conversationId === state.selectedConversationId;
+  if (state.tab === 'conversations' && composerBelongsToSelection && isReplyEditingActive()) {
+    renderConversationListOnly();
+    renderConversationMessagesOnly({ scrollToBottom: false });
+    return;
+  }
+
   target.innerHTML = currentTab();
   bindContent();
   if (state.shouldScrollMessages) {
@@ -536,20 +548,6 @@ function saveReplyDraftFromInput(messageInput, { restoreFocus = false } = {}) {
   };
   state.replyDrafts[key] = draft;
   persistReplyDrafts();
-
-  // An update may replace the composer between keydown and input. Mirror the
-  // completed keystroke into the newly mounted textarea instead of losing it.
-  const mountedInput = state.selectedConversationId === conversationId
-    ? document.querySelector('#replyForm textarea[name="message"]')
-    : null;
-  if (mountedInput && mountedInput !== messageInput && mountedInput.value !== draft.message) {
-    mountedInput.value = draft.message;
-    if (Number.isInteger(draft.selectionStart) && Number.isInteger(draft.selectionEnd)) {
-      mountedInput.setSelectionRange(draft.selectionStart, draft.selectionEnd);
-    }
-    if (draft.wasFocused) mountedInput.focus({ preventScroll: true });
-    autoResizeReplyTextarea(mountedInput);
-  }
   return draft;
 }
 
@@ -2082,11 +2080,6 @@ function bindContent() {
     lastReplyInputAt = Date.now();
     saveReplyDraftFromInput(event.currentTarget, { restoreFocus: true });
     autoResizeReplyTextarea(event.currentTarget);
-  });
-  replyMessageInput?.addEventListener('keydown', (event) => {
-    lastReplyInputAt = Date.now();
-    const sourceInput = event.currentTarget;
-    setTimeout(() => saveReplyDraftFromInput(sourceInput, { restoreFocus: true }), 0);
   });
   replyMessageInput?.addEventListener('compositionstart', () => {
     replyCompositionActive = true;

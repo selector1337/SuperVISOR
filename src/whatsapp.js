@@ -1,5 +1,5 @@
 const qrcode = require('qrcode');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, Message, MessageMedia } = require('whatsapp-web.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -86,6 +86,7 @@ let manualDisconnectUntil = 0;
 let isShuttingDown = false;
 let recentIncomingMessages = [];
 const avatarCache = new Map();
+const avatarRequests = new Map();
 const MEDIA_DOWNLOAD_LIMIT = 8;
 const CHAT_SNAPSHOT_CACHE_MS = 2500;
 let chatSnapshotCache = [];
@@ -727,24 +728,33 @@ async function profilePicUrlById(id) {
   if (!client || !id) return null;
   const cached = avatarCache.get(id);
   const now = Date.now();
-  if (cached && now - cached.createdAt < 1000 * 60 * 30) return cached.url;
+  const cacheDuration = cached?.url ? 1000 * 60 * 30 : 1000 * 60 * 5;
+  if (cached && now - cached.createdAt < cacheDuration) return cached.url;
+  if (avatarRequests.has(id)) return avatarRequests.get(id);
 
-  try {
-    const url = await withTimeout(client.getProfilePicUrl(id), 900, 'Foto demorou para carregar.');
-    avatarCache.set(id, { url, createdAt: now });
-    return url;
-  } catch (error) {
-    avatarCache.set(id, { url: null, createdAt: now });
-    return null;
-  }
+  const request = (async () => {
+    try {
+      const url = await withTimeout(client.getProfilePicUrl(id), 3500, 'Foto demorou para carregar.');
+      avatarCache.set(id, { url, createdAt: Date.now() });
+      return url;
+    } catch (error) {
+      avatarCache.set(id, { url: null, createdAt: Date.now() });
+      return null;
+    } finally {
+      avatarRequests.delete(id);
+    }
+  })();
+  avatarRequests.set(id, request);
+  return request;
 }
 
-function cachedProfilePicUrlById(id) {
+function cachedProfilePicUrlById(id, { load = true } = {}) {
   if (!client || !id) return null;
   const cached = avatarCache.get(id);
   const now = Date.now();
-  if (cached && now - cached.createdAt < 1000 * 60 * 30) return cached.url;
-  profilePicUrlById(id).then(() => emitState()).catch(() => {});
+  const cacheDuration = cached?.url ? 1000 * 60 * 30 : 1000 * 60 * 5;
+  if (cached && now - cached.createdAt < cacheDuration) return cached.url;
+  if (load) profilePicUrlById(id).catch(() => {});
   return null;
 }
 
@@ -758,10 +768,11 @@ function chatSummary(chat) {
   const lastMessage = chat.lastMessage;
   return {
     id,
+    profilePicId: id,
     name: chat.name || chat.formattedTitle || contactNumberFromId(id),
     isGroup,
     isCurrentParticipant: !isGroup || isCurrentUserParticipant(chat),
-    avatarUrl: cachedProfilePicUrlById(id),
+    avatarUrl: cachedProfilePicUrlById(id, { load: false }),
     unreadCount: chat.unreadCount || 0,
     timestamp: chat.timestamp || null,
     lastMessage: lastMessage?.body || (lastMessage?.hasMedia ? '[mídia]' : '')
@@ -773,10 +784,11 @@ function normalizeChatSnapshot(chat) {
   if (!id) return null;
   return {
     id,
+    profilePicId: chat.profilePicId || id,
     name: chat.name || contactNumberFromId(id),
     isGroup: Boolean(chat.isGroup),
     isCurrentParticipant: chat.isCurrentParticipant !== false,
-    avatarUrl: cachedProfilePicUrlById(id),
+    avatarUrl: cachedProfilePicUrlById(chat.profilePicId || id, { load: false }),
     unreadCount: Number(chat.unreadCount || 0),
     timestamp: Number(chat.timestamp || 0) || null,
     lastMessage: chat.lastMessage || ''
@@ -806,8 +818,12 @@ async function readMinimalChatSnapshots() {
         const hasMedia = Boolean(lastMessage?.mediaData || (type && !['chat', 'revoked'].includes(type)));
         const timestamp = Number(chat?.timestamp || chat?.t || lastMessage?.timestamp || lastMessage?.t || 0);
 
+        const contact = chat?.contact || collections?.Contact?.get?.(chat?.id);
+        const profilePicId = contact?.phoneNumber?._serialized || contact?.id?._serialized || id;
+
         return {
           id,
+          profilePicId,
           name: chat?.name || chat?.formattedTitle || chat?.contact?.pushname || id.replace(/@.*/, ''),
           isGroup: Boolean(chat?.isGroup || chat?.groupMetadata || id.endsWith('@g.us')),
           unreadCount: Number(chat?.unreadCount || 0),
@@ -992,17 +1008,112 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
 async function listConversations() {
   requireReady();
   const chats = await getChatSnapshots();
-  return [...chats].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 80);
+  const topChats = [...chats].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 80);
+  await Promise.allSettled(topChats.slice(0, 12).map(async (chat) => {
+    if (chat.avatarUrl) return;
+    chat.avatarUrl = await profilePicUrlById(chat.profilePicId || chat.id);
+  }));
+  topChats.slice(12, 40).forEach((chat) => {
+    if (!chat.avatarUrl) profilePicUrlById(chat.profilePicId || chat.id).catch(() => {});
+  });
+  return topChats;
+}
+
+async function readResilientMessages(chatId, limit) {
+  const models = await withTimeout(client.pupPage.evaluate(async (targetChatId, requestedLimit) => {
+    const chat = await window.WWebJS.getChat(targetChatId, { getAsModel: false });
+    if (!chat?.msgs) return [];
+    const validMessage = (message) => !message?.isNotification;
+    let messages = (chat.msgs.getModelsArray?.() || []).filter(validMessage);
+
+    while (messages.length < requestedLimit) {
+      try {
+        const loaded = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
+        if (!loaded?.length) break;
+        messages = [...loaded.filter(validMessage), ...messages];
+      } catch (error) {
+        break;
+      }
+    }
+
+    messages.sort((left, right) => Number(left?.t || 0) - Number(right?.t || 0));
+    messages = messages.slice(-requestedLimit);
+
+    return messages.map((message) => {
+      try {
+        return window.WWebJS.getMessageModel(message);
+      } catch (error) {
+        const rawId = message?.id || {};
+        const remote = rawId?.remote?._serialized || rawId?.remote || targetChatId;
+        const serialized = rawId?._serialized || `${Boolean(rawId?.fromMe)}_${remote}_${rawId?.id || message?.t || Date.now()}`;
+        const fromMe = Boolean(rawId?.fromMe);
+        const id = { _serialized: serialized, fromMe, remote, id: rawId?.id || serialized };
+        const serializeId = (value) => value?._serialized || value || null;
+        return {
+          id,
+          ack: typeof message?.ack === 'number' ? message.ack : null,
+          body: message?.body || message?.caption || '',
+          caption: message?.caption || '',
+          type: message?.type || 'chat',
+          t: Number(message?.t || message?.timestamp || 0),
+          from: serializeId(message?.from) || (fromMe ? null : targetChatId),
+          to: serializeId(message?.to) || (fromMe ? targetChatId : null),
+          author: serializeId(message?.author),
+          directPath: message?.directPath || message?.mediaData?.directPath || null,
+          mimetype: message?.mimetype || message?.mediaData?.mimetype || null,
+          filename: message?.filename || null,
+          mentionedJidList: message?.mentionedJidList || [],
+          isStatusV3: false
+        };
+      }
+    });
+  }, chatId, limit), 30000, 'As mensagens demoraram para sincronizar.');
+
+  return models.map((model) => new Message(client, model));
 }
 
 async function listMessages(chatId, limit = 24) {
   requireReady();
-  const chat = await client.getChatById(chatId);
-  const messages = await chat.fetchMessages({ limit: Number(limit) || 24 });
+  const safeLimit = Math.min(Math.max(Number(limit) || 24, 1), 100);
+  let messages;
+  try {
+    const chat = await client.getChatById(chatId);
+    messages = await chat.fetchMessages({ limit: safeLimit });
+  } catch (error) {
+    debugLog('Leitura completa de mensagens falhou; usando leitura resiliente', error.stack || error.message);
+    try {
+      messages = await readResilientMessages(chatId, safeLimit);
+    } catch (fallbackError) {
+      debugLog('Leitura resiliente de mensagens falhou', fallbackError.stack || fallbackError.message);
+      const friendlyError = new Error('O WhatsApp Web ainda esta sincronizando esta conversa. Tente abri-la novamente em alguns segundos.');
+      friendlyError.status = 503;
+      throw friendlyError;
+    }
+  }
   const mediaStart = Math.max(0, messages.length - MEDIA_DOWNLOAD_LIMIT);
-  const summaries = await Promise.all(messages.map((message, index) => (
-    messageSummary(message, { includeMedia: index >= mediaStart, includeAvatar: false, includeChatName: false })
-  )));
+  const summaries = await Promise.all(messages.map(async (message, index) => {
+    try {
+      return await messageSummary(message, { includeMedia: index >= mediaStart, includeAvatar: false, includeChatName: false });
+    } catch (error) {
+      debugLog('Mensagem individual ignorou metadados inconsistentes', error.message);
+      return {
+        id: message.id?._serialized || '',
+        from: message.author || message.from || '',
+        to: message.to || '',
+        body: message.body || '',
+        fromMe: Boolean(message.fromMe || message.id?.fromMe),
+        timestamp: message.timestamp ? message.timestamp * 1000 : Date.now(),
+        ack: typeof message.ack === 'number' ? message.ack : null,
+        hasMedia: false,
+        media: null,
+        senderName: contactNumberFromId(message.author || message.from),
+        senderNumber: contactNumberFromId(message.author || message.from),
+        senderAvatarUrl: null,
+        mentions: [],
+        chatName: ''
+      };
+    }
+  }));
   return summaries.sort((a, b) => a.timestamp - b.timestamp);
 }
 
