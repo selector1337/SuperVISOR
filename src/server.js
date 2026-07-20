@@ -26,6 +26,7 @@ const store = require('./store');
 const scheduler = require('./scheduler');
 const whatsapp = require('./whatsapp');
 const { createGumIntegration } = require('./gum-integration');
+const { createIntegrationsAdminRouter } = require('./integrations-admin');
 
 const app = express();
 const server = http.createServer(app);
@@ -88,6 +89,13 @@ async function requireOwner(req, res, next) {
     return next(error);
   }
 }
+
+app.use(
+  '/api/admin/integrations',
+  requireAuth,
+  requireOwner,
+  createIntegrationsAdminRouter({ whatsapp })
+);
 
 function validateSchedule(body) {
   const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;

@@ -62,12 +62,31 @@ let state = {
   statsCustomEnd: new Date().toLocaleDateString('en-CA'),
   statsGroupId: '',
   statsParticipants: [],
+  integrations: null,
+  integrationEnvironment: 'production',
   actionMessage: null,
   selectedDates: [],
   selectedDatesScheduleId: null
 };
 
 const changelog = [
+  {
+    version: '1.2',
+    title: 'Central de integrações gUMperformance',
+    items: [
+      'Novo menu Integrações exclusivo para o usuário principal.',
+      'Monitoramento separado dos ambientes gUMperformance e gUMperformance beta.',
+      'Indicadores de disponibilidade, execução, última verificação, eventos enviados e pendências.',
+      'Configuração visual de intervalo de monitoramento, tolerância de atraso e horário padrão de entrada.',
+      'Roteamento de mensagens por pessoa, tipo de evento, departamento ou grupos padrão.',
+      'Prioridade de destino por pessoa para garantir que cada colaborador seja notificado no grupo correto.',
+      'Modelos de mensagem personalizáveis com variáveis dinâmicas para cada funcionalidade do gUMperformance.',
+      'Configuração individual dos eventos de tarefa atrasada, card pendente, login atrasado, meta atingida, resposta administrativa e advertência.',
+      'Envio de mensagem de teste com confirmação e execução manual de verificação de eventos.',
+      'Histórico recente e apresentação de falhas diretamente no painel.',
+      'Chave secreta mantida exclusivamente no servidor, sem exposição no navegador.'
+    ]
+  },
   {
     version: '1.1',
     title: 'Expansão operacional e estabilidade',
@@ -347,11 +366,11 @@ function renderAuth() {
   const isSetup = !state.hasUsers;
   app.innerHTML = `
     <section class="auth-shell">
-      <button class="changelog-button" id="changelogButton" type="button">v1.1</button>
+      <button class="changelog-button" id="changelogButton" type="button">v1.2</button>
       <div class="auth-brand">
         <div class="logo-mark">✓</div>
         ${logoMarkup('large')}
-        <span>versão 1.1</span>
+        <span>versão 1.2</span>
       </div>
       <form class="auth-panel form" id="authForm">
         <div>
@@ -400,6 +419,7 @@ function renderShell() {
           ${navButton('contacts', 'Contatos')}
           ${navButton('conversations', 'Conversas')}
           ${navButton('stats', 'Estatísticas')}
+          ${state.user?.isOwner ? navButton('integrations', 'Integrações') : ''}
           ${navButton('users', 'Administradores')}
           ${navButton('logs', 'Histórico')}
         </nav>
@@ -410,7 +430,7 @@ function renderShell() {
           <span id="liveClock"></span>
           <span id="liveStatus" class="${statusClass()}">${whatsappStatusText()}</span>
           <div class="header-actions">
-            <button class="link-button" id="changelogButton" type="button">Changelog v1.1</button>
+            <button class="link-button" id="changelogButton" type="button">Changelog v1.2</button>
             <div class="account">
               <button class="account-button" id="accountButton" type="button">
                 ${avatarMarkup(state.user)}
@@ -674,6 +694,11 @@ function bindShell() {
         setTimeout(() => refreshConversations({ silent: true, preserveScroll: true, preserveDraft: true }), 0);
         return;
       }
+      if (state.tab === 'integrations') {
+        renderContentQueued();
+        setTimeout(loadIntegrations, 0);
+        return;
+      }
       renderContentQueued();
     });
   });
@@ -752,11 +777,214 @@ function updateLiveStatus() {
   status.className = statusClass();
 }
 
+async function loadIntegrations({ silent = false } = {}) {
+  try {
+    state.integrations = await api('/api/admin/integrations');
+    if (state.tab === 'integrations') renderContent();
+    if (!silent) toast('Integrações atualizadas.');
+  } catch (error) {
+    if (!silent) toast(error.message);
+  }
+}
+
+function selectedIntegrationTarget() {
+  return state.integrations?.targets?.find((target) => target.id === state.integrationEnvironment) || null;
+}
+
+function integrationTimestamp(value) {
+  if (!value) return 'Ainda não executado';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
+}
+
+function integrationGroupName(groupId) {
+  return state.integrations?.whatsapp?.groups?.find((group) => group.id === groupId)?.name || groupId;
+}
+
+function integrationGroupCheckboxes(groups, selectedIds, attributes) {
+  const selected = new Set(selectedIds || []);
+  if (!groups.length) return '<div class="empty compact-empty">Nenhum grupo carregado no WhatsApp.</div>';
+  return `<div class="integration-group-grid">${groups.map((group) => `
+    <label class="integration-group-option">
+      <input type="checkbox" value="${escapeHtml(group.id)}" ${selected.has(group.id) ? 'checked' : ''} ${attributes}>
+      <span>${escapeHtml(group.name)}</span>
+    </label>
+  `).join('')}</div>`;
+}
+
+function integrationMappingList(mapping, labels, kind) {
+  const rows = Object.entries(mapping || {}).filter(([, groupIds]) => groupIds?.length);
+  if (!rows.length) return '<p class="muted integration-empty-mapping">Nenhum vínculo específico cadastrado.</p>';
+  return `<div class="integration-mapping-list">${rows.map(([key, groupIds]) => `
+    <div class="integration-mapping-row">
+      <div>
+        <strong>${escapeHtml(labels[key] || key)}</strong>
+        <span>${groupIds.map((groupId) => escapeHtml(integrationGroupName(groupId))).join(' · ')}</span>
+      </div>
+      <button class="danger compact-button" type="button" data-remove-integration-mapping="${escapeHtml(kind)}" data-mapping-key="${escapeHtml(key)}">Remover</button>
+    </div>
+  `).join('')}</div>`;
+}
+
+function integrationsTab() {
+  if (!state.user?.isOwner) return '<div class="empty">Apenas o usuário principal pode configurar integrações.</div>';
+  if (!state.integrations) {
+    return `<div class="integration-loading panel"><span class="status">Carregando ambientes de integração</span></div>`;
+  }
+
+  const target = selectedIntegrationTarget() || state.integrations.targets?.[0];
+  const groups = state.integrations.whatsapp?.groups || [];
+  const config = target?.config || {};
+  const status = target?.status || {};
+  const catalog = target?.catalog || { users: [], departments: [], events: [] };
+  const userLabels = Object.fromEntries(catalog.users.map((user) => [user.id, `${user.name} · ${user.department}`]));
+  const departmentLabels = Object.fromEntries(catalog.departments.map((department) => [department, department]));
+
+  return `
+    <div class="topbar integration-topbar">
+      <div>
+        <h1>Integrações</h1>
+        <p>Configure automações do gUMperformance e do ambiente beta em um único painel.</p>
+      </div>
+      <button class="secondary" id="refreshIntegrations" type="button">Atualizar</button>
+    </div>
+
+    <section class="integration-summary-grid">
+      <article class="panel integration-summary-card">
+        <span class="integration-kicker">WhatsApp do SuperVISOR</span>
+        <strong>${escapeHtml(state.integrations.whatsapp?.connectedNumber || 'Número não identificado')}</strong>
+        <span class="status ${state.integrations.whatsapp?.status === 'ready' ? 'status-success' : 'status-danger'}">${state.integrations.whatsapp?.status === 'ready' ? 'Conectado' : 'Indisponível'}</span>
+      </article>
+      <article class="panel integration-summary-card">
+        <span class="integration-kicker">Segredo compartilhado</span>
+        <strong>${state.integrations.configuredSecret ? 'Configurado no servidor' : 'Configuração pendente'}</strong>
+        <span class="status ${state.integrations.configuredSecret ? 'status-success' : 'status-danger'}">${state.integrations.configuredSecret ? 'Protegido' : 'Ausente'}</span>
+      </article>
+      <article class="panel integration-summary-card">
+        <span class="integration-kicker">Grupos disponíveis</span>
+        <strong>${groups.length}</strong>
+        <span class="muted">Carregados pela sessão atual</span>
+      </article>
+    </section>
+
+    <div class="integration-environments" role="tablist">
+      ${state.integrations.targets.map((item) => `
+        <button class="integration-environment ${item.id === target?.id ? 'active' : ''}" type="button" data-integration-environment="${item.id}">
+          <span>${escapeHtml(item.name)}</span>
+          <small class="${item.reachable ? 'online' : 'offline'}">${item.reachable ? (item.config?.enabled ? 'Ativa' : 'Disponível') : 'Fora do ar'}</small>
+        </button>
+      `).join('')}
+    </div>
+
+    ${!target?.reachable ? `
+      <section class="panel integration-offline">
+        <span class="status status-danger">Ambiente indisponível</span>
+        <h2>${escapeHtml(target?.name || 'Ambiente')}</h2>
+        <p>${escapeHtml(target?.error || 'Não foi possível consultar este ambiente.')}</p>
+        <code>${escapeHtml(target?.baseUrl || '')}</code>
+      </section>
+    ` : `
+      <section class="integration-health-grid">
+        <article class="panel metric-card"><span>Monitor</span><strong>${status.running ? 'Executando' : 'Parado'}</strong></article>
+        <article class="panel metric-card"><span>Última verificação</span><strong>${escapeHtml(integrationTimestamp(status.lastScanAt))}</strong></article>
+        <article class="panel metric-card"><span>Eventos enviados</span><strong>${Number(status.sent || 0)}</strong></article>
+        <article class="panel metric-card"><span>Pendências</span><strong class="${status.pending ? 'danger-text' : ''}">${Number(status.pending || 0)}</strong></article>
+      </section>
+      ${status.lastError ? `<div class="integration-error"><strong>Última falha:</strong> ${escapeHtml(status.lastError)}</div>` : ''}
+
+      <form class="integration-config" id="integrationConfigForm">
+        <section class="panel integration-section">
+          <div class="panel-head integration-section-head">
+            <div><span class="integration-kicker">Operação</span><h2>Ativação e frequência</h2></div>
+            <label class="integration-switch"><input name="enabled" type="checkbox" ${config.enabled ? 'checked' : ''}><span></span><strong>Integração ativa</strong></label>
+          </div>
+          <div class="integration-fields">
+            <label>Intervalo de verificação (segundos)<input name="intervalSeconds" type="number" min="15" max="300" value="${Number(config.intervalSeconds || 30)}"></label>
+            <label>Tolerância para atrasos (minutos)<input name="graceMinutes" type="number" min="0" max="120" value="${Number(config.graceMinutes || 5)}"></label>
+            <label>Horário padrão de entrada<input name="expectedLoginTime" type="time" value="${escapeHtml(config.expectedLoginTime || '09:00')}"></label>
+          </div>
+        </section>
+
+        <section class="panel integration-section">
+          <div class="integration-section-head"><div><span class="integration-kicker">Destino de segurança</span><h2>Grupos padrão</h2></div><p>Usados quando não existir vínculo mais específico.</p></div>
+          ${integrationGroupCheckboxes(groups, config.defaultGroupIds, 'data-integration-default-group')}
+        </section>
+
+        <section class="panel integration-section">
+          <div class="integration-section-head"><div><span class="integration-kicker">Roteamento individual</span><h2>Pessoas e grupos</h2></div><p>O vínculo por pessoa tem prioridade sobre todas as demais regras.</p></div>
+          <div class="integration-mapping-builder">
+            <select id="integrationPerson"><option value="">Selecionar pessoa</option>${catalog.users.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(user.department)}</option>`).join('')}</select>
+            <select id="integrationPersonGroup"><option value="">Selecionar grupo</option>${groups.map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join('')}</select>
+            <button class="secondary" id="addPersonIntegrationGroup" type="button">Adicionar vínculo</button>
+          </div>
+          ${integrationMappingList(config.groupIdsByUser, userLabels, 'user')}
+        </section>
+
+        <section class="panel integration-section">
+          <div class="integration-section-head"><div><span class="integration-kicker">Roteamento por equipe</span><h2>Departamentos e grupos</h2></div><p>Aplicado quando a pessoa não possuir um vínculo individual.</p></div>
+          <div class="integration-mapping-builder">
+            <select id="integrationDepartment"><option value="">Selecionar departamento</option>${catalog.departments.map((department) => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`).join('')}</select>
+            <select id="integrationDepartmentGroup"><option value="">Selecionar grupo</option>${groups.map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join('')}</select>
+            <button class="secondary" id="addDepartmentIntegrationGroup" type="button">Adicionar vínculo</button>
+          </div>
+          ${integrationMappingList(config.groupIdsByDepartment, departmentLabels, 'department')}
+        </section>
+
+        <section class="integration-events-section">
+          <div class="integration-section-head"><div><span class="integration-kicker">Automações</span><h2>Eventos e mensagens</h2></div><p>Ative recursos, personalize o texto e escolha grupos exclusivos.</p></div>
+          <div class="integration-event-list">
+            ${catalog.events.map((eventDefinition) => {
+              const eventGroups = config.groupIdsByEvent?.[eventDefinition.id] || [];
+              return `
+                <details class="panel integration-event-card" ${eventDefinition.id === 'task_late' ? 'open' : ''}>
+                  <summary>
+                    <div><strong>${escapeHtml(eventDefinition.label)}</strong><span>${escapeHtml(eventDefinition.description)}</span></div>
+                    <label class="integration-switch" onclick="event.stopPropagation()"><input type="checkbox" data-integration-event-enabled="${escapeHtml(eventDefinition.id)}" ${config.enabledEvents?.[eventDefinition.id] !== false ? 'checked' : ''}><span></span></label>
+                  </summary>
+                  <div class="integration-event-body">
+                    <label>Modelo da mensagem<textarea rows="5" data-integration-template="${escapeHtml(eventDefinition.id)}">${escapeHtml(config.messageTemplates?.[eventDefinition.id] || '')}</textarea></label>
+                    <div class="integration-variables">${eventDefinition.variables.map((variable) => `<code>{{${escapeHtml(variable)}}}</code>`).join('')}</div>
+                    <div><span class="field-title">Grupos exclusivos deste evento</span>${integrationGroupCheckboxes(groups, eventGroups, `data-integration-event-group="${escapeHtml(eventDefinition.id)}"`)}</div>
+                  </div>
+                </details>
+              `;
+            }).join('')}
+          </div>
+        </section>
+
+        <div class="integration-savebar">
+          <span>Alterações só entram em vigor depois de salvar.</span>
+          <button class="primary" type="submit">Salvar configuração de ${escapeHtml(target.name)}</button>
+        </div>
+      </form>
+
+      <section class="integration-bottom-grid">
+        <article class="panel integration-test-panel">
+          <div><span class="integration-kicker">Teste controlado</span><h2>Enviar mensagem de validação</h2></div>
+          <label>Grupo<select id="integrationTestGroup"><option value="">Selecionar grupo</option>${groups.map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join('')}</select></label>
+          <label>Mensagem<textarea id="integrationTestMessage" rows="4">*${escapeHtml(target.name)}*\nIntegração com o SuperVISOR validada com sucesso.</textarea></label>
+          <button class="secondary" id="testIntegration" type="button">Enviar teste</button>
+          <button class="secondary" id="scanIntegration" type="button">Verificar eventos agora</button>
+        </article>
+        <article class="panel integration-history-panel">
+          <div><span class="integration-kicker">Atividade recente</span><h2>Últimos eventos</h2></div>
+          <div class="integration-event-history">
+            ${(status.recentEvents || []).slice(0, 10).map((event) => `
+              <div><span class="status ${event.status === 'sent' ? 'status-success' : 'status-danger'}">${event.status === 'sent' ? 'Enviado' : 'Pendente'}</span><strong>${escapeHtml(event.type || 'Evento')}</strong><small>${escapeHtml(integrationTimestamp(event.sentAt || event.createdAt || event.occurredAt))}</small></div>
+            `).join('') || '<div class="empty compact-empty">Nenhum evento processado neste ambiente.</div>'}
+          </div>
+        </article>
+      </section>
+    `}
+  `;
+}
+
 function currentTab() {
   if (state.tab === 'whatsapp') return whatsappTab();
   if (state.tab === 'contacts') return contactsTab();
   if (state.tab === 'conversations') return conversationsTab();
   if (state.tab === 'stats') return statsTab();
+  if (state.tab === 'integrations') return integrationsTab();
   if (state.tab === 'users') return usersTab();
   if (state.tab === 'logs') return logsTab();
   return schedulesTab();
@@ -1636,7 +1864,125 @@ function scheduleItem(schedule) {
   `;
 }
 
+function captureIntegrationConfig() {
+  const form = document.querySelector('#integrationConfigForm');
+  const target = selectedIntegrationTarget();
+  if (!form || !target?.reachable) return target?.config || {};
+  const config = target.config;
+  config.enabled = Boolean(form.elements.enabled?.checked);
+  config.intervalSeconds = Number(form.elements.intervalSeconds?.value || 30);
+  config.graceMinutes = Number(form.elements.graceMinutes?.value || 0);
+  config.expectedLoginTime = form.elements.expectedLoginTime?.value || '09:00';
+  config.defaultGroupIds = [...form.querySelectorAll('[data-integration-default-group]:checked')].map((input) => input.value);
+  config.enabledEvents = Object.fromEntries(
+    [...form.querySelectorAll('[data-integration-event-enabled]')].map((input) => [input.dataset.integrationEventEnabled, input.checked])
+  );
+  config.messageTemplates = Object.fromEntries(
+    [...form.querySelectorAll('[data-integration-template]')].map((input) => [input.dataset.integrationTemplate, input.value])
+  );
+  config.groupIdsByEvent = Object.fromEntries(
+    (target.catalog?.events || []).map((eventDefinition) => [
+      eventDefinition.id,
+      [...form.querySelectorAll(`[data-integration-event-group="${CSS.escape(eventDefinition.id)}"]:checked`)].map((input) => input.value)
+    ])
+  );
+  return config;
+}
+
+function addIntegrationMapping(kind) {
+  const target = selectedIntegrationTarget();
+  if (!target?.reachable) return;
+  captureIntegrationConfig();
+  const isUser = kind === 'user';
+  const key = document.querySelector(isUser ? '#integrationPerson' : '#integrationDepartment')?.value;
+  const groupId = document.querySelector(isUser ? '#integrationPersonGroup' : '#integrationDepartmentGroup')?.value;
+  if (!key || !groupId) {
+    toast('Selecione a origem e o grupo do vínculo.');
+    return;
+  }
+  const field = isUser ? 'groupIdsByUser' : 'groupIdsByDepartment';
+  target.config[field] ||= {};
+  target.config[field][key] = [...new Set([...(target.config[field][key] || []), groupId])];
+  renderContent();
+}
+
+function removeIntegrationMapping(kind, key) {
+  const target = selectedIntegrationTarget();
+  if (!target?.reachable) return;
+  captureIntegrationConfig();
+  const field = kind === 'user' ? 'groupIdsByUser' : 'groupIdsByDepartment';
+  delete target.config[field]?.[key];
+  renderContent();
+}
+
+async function saveIntegrationConfig(event) {
+  event.preventDefault();
+  const target = selectedIntegrationTarget();
+  if (!target) return;
+  try {
+    const config = captureIntegrationConfig();
+    await api(`/api/admin/integrations/${target.id}`, { method: 'PUT', body: JSON.stringify(config) });
+    await loadIntegrations({ silent: true });
+    toast(`Configuração de ${target.name} salva.`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function testIntegration() {
+  const target = selectedIntegrationTarget();
+  const groupId = document.querySelector('#integrationTestGroup')?.value;
+  const message = document.querySelector('#integrationTestMessage')?.value || '';
+  if (!target || !groupId || !message.trim()) {
+    toast('Selecione um grupo e informe a mensagem de teste.');
+    return;
+  }
+  if (!confirm(`Enviar agora uma mensagem real no grupo ${integrationGroupName(groupId)}?`)) return;
+  try {
+    await api(`/api/admin/integrations/${target.id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ groupIds: [groupId], message })
+    });
+    await loadIntegrations({ silent: true });
+    toast('Mensagem de teste enviada.');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function scanIntegration() {
+  const target = selectedIntegrationTarget();
+  if (!target || !confirm(`Executar agora a verificação de ${target.name}? Eventos pendentes poderão ser enviados.`)) return;
+  try {
+    await api(`/api/admin/integrations/${target.id}/scan`, { method: 'POST' });
+    await loadIntegrations({ silent: true });
+    toast('Verificação concluída.');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function bindIntegrationsContent() {
+  document.querySelector('#refreshIntegrations')?.addEventListener('click', () => loadIntegrations());
+  document.querySelectorAll('[data-integration-environment]').forEach((button) => {
+    button.addEventListener('click', () => {
+      captureIntegrationConfig();
+      state.integrationEnvironment = button.dataset.integrationEnvironment;
+      renderContent();
+    });
+  });
+  document.querySelector('#integrationConfigForm')?.addEventListener('submit', saveIntegrationConfig);
+  document.querySelector('#addPersonIntegrationGroup')?.addEventListener('click', () => addIntegrationMapping('user'));
+  document.querySelector('#addDepartmentIntegrationGroup')?.addEventListener('click', () => addIntegrationMapping('department'));
+  document.querySelectorAll('[data-remove-integration-mapping]').forEach((button) => {
+    button.addEventListener('click', () => removeIntegrationMapping(button.dataset.removeIntegrationMapping, button.dataset.mappingKey));
+  });
+  document.querySelector('#testIntegration')?.addEventListener('click', testIntegration);
+  document.querySelector('#scanIntegration')?.addEventListener('click', scanIntegration);
+}
+
 function bindContent() {
+  bindIntegrationsContent();
   document.querySelector('#refreshGroups')?.addEventListener('click', refreshGroups);
   document.querySelector('#disconnectWhatsApp')?.addEventListener('click', disconnectWhatsApp);
   document.querySelector('#restartWhatsApp')?.addEventListener('click', restartWhatsApp);
