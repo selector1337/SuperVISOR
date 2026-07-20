@@ -4,6 +4,8 @@ const ALLOWED_CONFIG_FIELDS = new Set([
   'enabled',
   'intervalSeconds',
   'graceMinutes',
+  'cooldownMinutes',
+  'botName',
   'expectedLoginTime',
   'defaultGroupIds',
   'groupIdsByUser',

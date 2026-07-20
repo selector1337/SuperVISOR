@@ -1,6 +1,6 @@
 {
   "name": "supervisor",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "SuperVISOR: gestor de equipes com WhatsApp, agendamentos, conversas, contatos e estatisticas.",
   "main": "src/server.js",
   "type": "commonjs",
@@ -8,6 +8,8 @@
     "browser:install": "puppeteer browsers install chrome",
     "postinstall": "npm run browser:install",
     "test:integrations": "node scripts/test-integrations-admin.cjs",
+    "test:gum-receiver": "node scripts/test-gum-receiver.cjs",
+    "test:conversation-composer": "node scripts/test-conversation-composer.cjs",
     "pm2:start": "pm2 startOrReload ecosystem.config.cjs --update-env",
     "start": "node src/server.js",
     "dev": "node src/server.js"

@@ -734,7 +734,40 @@ async function profilePicUrlById(id) {
 
   const request = (async () => {
     try {
-      const url = await withTimeout(client.getProfilePicUrl(id), 3500, 'Foto demorou para carregar.');
+      const candidates = [id];
+      try {
+        const contact = await withTimeout(client.getContactById(id), 2500, 'Contato demorou para carregar.');
+        candidates.push(
+          contact?.phoneNumber?._serialized,
+          contact?.id?._serialized,
+          contact?.number ? `${contact.number}@c.us` : null
+        );
+      } catch (error) {
+        // The original identifier can still resolve the photo.
+      }
+
+      let url = null;
+      for (const candidate of [...new Set(candidates.filter(Boolean))]) {
+        try {
+          url = await withTimeout(client.getProfilePicUrl(candidate), 3500, 'Foto demorou para carregar.');
+          if (url) break;
+        } catch (error) {
+          // Try the phone-number identifier before using the cached thumbnail.
+        }
+      }
+
+      if (!url && client?.pupPage) {
+        try {
+          const base64 = await withTimeout(client.pupPage.evaluate(async (contactId) => {
+            const wid = window.require('WAWebWidFactory').createWid(contactId);
+            return window.WWebJS.getProfilePicThumbToBase64(wid);
+          }, id), 3500, 'Miniatura demorou para carregar.');
+          if (base64) url = `data:image/jpeg;base64,${base64}`;
+        } catch (error) {
+          // Privacy settings may intentionally hide the profile picture.
+        }
+      }
+
       avatarCache.set(id, { url, createdAt: Date.now() });
       return url;
     } catch (error) {

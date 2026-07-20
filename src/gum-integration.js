@@ -15,6 +15,23 @@ function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
+function integrationMessage(message, botName) {
+  const name = String(botName || '').trim();
+  return name ? `*${name}*:\n${message}` : message;
+}
+
+function eventFingerprint(body, groupIds, contactIds) {
+  const supplied = String(body.dedupeKey || '').trim();
+  if (supplied) return supplied.slice(0, 300);
+  const normalizedMessage = String(body.message || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return crypto.createHash('sha256').update(JSON.stringify({
+    source: String(body.source || 'gUMperformance'),
+    type: String(body.type || 'notification'),
+    message: normalizedMessage,
+    targets: [...groupIds, ...contactIds].sort()
+  })).digest('hex');
+}
+
 function createGumIntegration({ whatsapp, dataDir }) {
   const router = express.Router();
   const historyFile = path.join(dataDir, 'gum-integration-events.json');
@@ -83,6 +100,10 @@ function createGumIntegration({ whatsapp, dataDir }) {
   router.post('/events', async (req, res, next) => {
     const eventId = String(req.body.eventId || '').trim();
     if (!eventId || eventId.length > 240) return res.status(400).json({ error: 'eventId invalido.' });
+    const requestedGroupIds = uniqueStrings(req.body.groupIds);
+    const requestedContactIds = uniqueStrings(req.body.contactIds);
+    const requestedFingerprint = eventFingerprint(req.body, requestedGroupIds, requestedContactIds);
+    const fingerprintProcessingKey = `fingerprint:${requestedFingerprint}`;
 
     if (processing.has(eventId)) {
       try {
@@ -91,11 +112,19 @@ function createGumIntegration({ whatsapp, dataDir }) {
         return next(error);
       }
     }
+    if (processing.has(fingerprintProcessingKey)) {
+      try {
+        return res.json(await processing.get(fingerprintProcessingKey));
+      } catch (error) {
+        return next(error);
+      }
+    }
 
     const job = (async () => {
       const message = String(req.body.message || '').trim();
-      const groupIds = uniqueStrings(req.body.groupIds);
-      const contactIds = uniqueStrings(req.body.contactIds);
+      const botName = String(req.body.botName || '').trim().slice(0, 80);
+      const groupIds = requestedGroupIds;
+      const contactIds = requestedContactIds;
       if (!message) {
         const error = new Error('A mensagem do evento esta vazia.');
         error.status = 400;
@@ -109,6 +138,26 @@ function createGumIntegration({ whatsapp, dataDir }) {
 
       const history = readHistory();
       const previous = history.events.find((item) => item.eventId === eventId);
+      const fingerprint = requestedFingerprint;
+      const cooldownMinutes = Math.max(1, Math.min(1440, Number(req.body.cooldownMinutes || 360)));
+      const cooldownStart = Date.now() - cooldownMinutes * 60 * 1000;
+      const recentEquivalent = history.events.find((item) => (
+        item.eventId !== eventId
+        && (item.fingerprint || eventFingerprint(item, item.groupIds, item.contactIds)) === fingerprint
+        && item.status === 'sent'
+        && Date.parse(item.updatedAt || item.receivedAt || 0) >= cooldownStart
+      ));
+
+      if (!previous && recentEquivalent) {
+        return {
+          ok: true,
+          duplicate: true,
+          suppressedByCooldown: true,
+          eventId,
+          previousEventId: recentEquivalent.eventId,
+          results: recentEquivalent.results || []
+        };
+      }
       const successfulTargets = new Set((previous?.results || []).filter((item) => item.ok).map((item) => item.targetId));
       const pendingGroupIds = groupIds.filter((id) => !successfulTargets.has(id));
       const pendingContactIds = contactIds.filter((id) => !successfulTargets.has(id));
@@ -120,7 +169,7 @@ function createGumIntegration({ whatsapp, dataDir }) {
       const results = await whatsapp.sendMessageToTargets({
         groupIds: pendingGroupIds,
         contactIds: pendingContactIds
-      }, message);
+      }, integrationMessage(message, botName));
       const mergedResults = [
         ...(previous?.results || []),
         ...results.filter((result) => !successfulTargets.has(result.targetId))
@@ -135,6 +184,9 @@ function createGumIntegration({ whatsapp, dataDir }) {
         updatedAt: new Date().toISOString(),
         status: allSent ? 'sent' : 'partial',
         message,
+        botName,
+        fingerprint,
+        cooldownMinutes,
         groupIds,
         contactIds,
         results: mergedResults
@@ -146,6 +198,7 @@ function createGumIntegration({ whatsapp, dataDir }) {
     })();
 
     processing.set(eventId, job);
+    processing.set(fingerprintProcessingKey, job);
     try {
       const result = await job;
       return res.status(result.ok ? 200 : 502).json(result);
@@ -153,6 +206,7 @@ function createGumIntegration({ whatsapp, dataDir }) {
       return next(error);
     } finally {
       processing.delete(eventId);
+      processing.delete(fingerprintProcessingKey);
     }
   });
 

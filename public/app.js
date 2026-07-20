@@ -74,6 +74,10 @@ const changelog = [
     version: '1.2',
     title: 'Central de integrações gUMperformance',
     items: [
+      'Nome do bot opcional nas integrações, aplicado automaticamente antes das mensagens enviadas pelo gUMperformance.',
+      'Janela antirrepetição configurável para impedir cobranças consecutivas sobre o mesmo evento.',
+      'Resolução ampliada de fotos de contatos, incluindo identificadores LID, número telefônico e miniatura local do WhatsApp.',
+      'Compositor de respostas isolado do polling e das mensagens em tempo real para impedir perda de caracteres durante a digitação.',
       'Correção definitiva do campo de resposta para impedir perda de letras durante atualizações em tempo real.',
       'Leitura resiliente das mensagens para que um item incompatível não impeça a abertura da conversa.',
       'Carregamento de fotos de perfil aprimorado, com suporte aos identificadores atuais do WhatsApp e cache controlado.',
@@ -201,6 +205,11 @@ socket.on('whatsapp:message', async (message) => {
   const notification = { title, body: preview, icon, avatarUrl: message.senderAvatarUrl };
   state.pendingConversationAlerts += state.tab === 'conversations' && state.selectedConversationId === chatId ? 0 : 1;
   if (state.tab === 'conversations') {
+    if (isReplyEditingActive()) {
+      updateNav();
+      toast(notification);
+      return;
+    }
     const wasNearBottom = isMessagesNearBottom();
     await refreshConversations({ silent: true, preserveScroll: true, preserveDraft: true });
     if (state.selectedConversationId === chatId && !isReplyEditingActive()) {
@@ -567,14 +576,16 @@ function captureReplyDraft() {
 
 function restoreReplyDraft(draft) {
   if (!draft || draft.conversationId !== state.selectedConversationId) return;
+  const latestDraft = storedReplyDraft(draft.conversationId);
+  if (latestDraft) draft = latestDraft;
   const form = document.querySelector('#replyForm');
   if (!form) return;
   if (form.elements.message) {
-    form.elements.message.value = draft.message;
-    if (Number.isInteger(draft.selectionStart) && Number.isInteger(draft.selectionEnd)) {
+    const valueStillMatches = form.elements.message.value === draft.message;
+    if (valueStillMatches && Number.isInteger(draft.selectionStart) && Number.isInteger(draft.selectionEnd)) {
       form.elements.message.setSelectionRange(draft.selectionStart, draft.selectionEnd);
     }
-    if (draft.wasFocused) form.elements.message.focus({ preventScroll: true });
+    if (valueStillMatches && draft.wasFocused) form.elements.message.focus({ preventScroll: true });
   }
   if (form.elements.replyBotName) form.elements.replyBotName.value = draft.replyBotName;
   autoResizeReplyTextarea(form.elements.message);
@@ -640,6 +651,7 @@ function stopConversationPolling() {
 
 async function pollConversations() {
   if (!state.user || state.tab !== 'conversations') return;
+  if (isReplyEditingActive()) return;
   const selectedId = state.selectedConversationId;
   const selectedBefore = state.conversations.find((conversation) => conversation.id === selectedId);
   const previousTimestamp = Number(selectedBefore?.timestamp || 0);
@@ -901,6 +913,8 @@ function integrationsTab() {
             <label>Intervalo de verificação (segundos)<input name="intervalSeconds" type="number" min="15" max="300" value="${Number(config.intervalSeconds || 30)}"></label>
             <label>Tolerância para atrasos (minutos)<input name="graceMinutes" type="number" min="0" max="120" value="${Number(config.graceMinutes || 5)}"></label>
             <label>Horário padrão de entrada<input name="expectedLoginTime" type="time" value="${escapeHtml(config.expectedLoginTime || '09:00')}"></label>
+            <label>Nome do bot (opcional)<input name="botName" maxlength="80" placeholder="SuperVISOR" value="${escapeHtml(config.botName || '')}"></label>
+            <label>Não repetir o mesmo alerta por (minutos)<input name="cooldownMinutes" type="number" min="1" max="1440" value="${Number(config.cooldownMinutes || 360)}"></label>
           </div>
         </section>
 
@@ -1872,6 +1886,8 @@ function captureIntegrationConfig() {
   config.intervalSeconds = Number(form.elements.intervalSeconds?.value || 30);
   config.graceMinutes = Number(form.elements.graceMinutes?.value || 0);
   config.expectedLoginTime = form.elements.expectedLoginTime?.value || '09:00';
+  config.botName = String(form.elements.botName?.value || '').trim();
+  config.cooldownMinutes = Number(form.elements.cooldownMinutes?.value || 360);
   config.defaultGroupIds = [...form.querySelectorAll('[data-integration-default-group]:checked')].map((input) => input.value);
   config.enabledEvents = Object.fromEntries(
     [...form.querySelectorAll('[data-integration-event-enabled]')].map((input) => [input.dataset.integrationEventEnabled, input.checked])
