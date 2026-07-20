@@ -3,9 +3,5 @@ data/
 .wwebjs_auth/
 .wwebjs_cache/
 .cache/
-.chrome-remote/
-.chrome-remote2/
-.chrome-remote3/
-.chrome-remote4/
 *.log
 .env
