@@ -17,7 +17,8 @@ function uniqueStrings(values) {
 
 function integrationMessage(message, botName) {
   const name = String(botName || '').trim();
-  return name ? `*${name}*:\n${message}` : message;
+  const text = String(message || '').trim();
+  return name && !text.startsWith(`*${name}*:`) ? `*${name}*:\n${text}` : text;
 }
 
 function eventFingerprint(body, groupIds, contactIds) {
@@ -157,6 +158,26 @@ function createGumIntegration({ whatsapp, dataDir }) {
           previousEventId: recentEquivalent.eventId,
           results: recentEquivalent.results || []
         };
+      }
+
+      if (!previous) {
+        history.events.push({
+          eventId,
+          type: String(req.body.type || 'notification'),
+          source: String(req.body.source || 'gUMperformance'),
+          occurredAt: req.body.occurredAt || new Date().toISOString(),
+          receivedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'processing',
+          message,
+          botName,
+          fingerprint,
+          cooldownMinutes,
+          groupIds,
+          contactIds,
+          results: []
+        });
+        writeHistory(history);
       }
       const successfulTargets = new Set((previous?.results || []).filter((item) => item.ok).map((item) => item.targetId));
       const pendingGroupIds = groupIds.filter((id) => !successfulTargets.has(id));

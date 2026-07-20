@@ -1,6 +1,6 @@
 {
   "name": "supervisor",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "SuperVISOR: gestor de equipes com WhatsApp, agendamentos, conversas, contatos e estatisticas.",
   "main": "src/server.js",
   "type": "commonjs",

@@ -76,6 +76,10 @@ const changelog = [
     items: [
       'Nome do bot opcional nas integrações, aplicado automaticamente antes das mensagens enviadas pelo gUMperformance.',
       'Janela antirrepetição configurável para impedir cobranças consecutivas sobre o mesmo evento.',
+      'Confirmação de entrega ampliada para impedir reenvios quando o WhatsApp demora mais de 15 segundos para responder.',
+      'Deduplicação persistente por evento, inclusive quando o horário dinâmico altera o texto da mensagem.',
+      'Variáveis de horário compatíveis com grafias acentuadas e não acentuadas, sempre preenchidas com o horário real.',
+      'Assinatura opcional do bot aplicada tanto na origem quanto no receptor, sem risco de nome duplicado.',
       'Resolução ampliada de fotos de contatos, incluindo identificadores LID, número telefônico e miniatura local do WhatsApp.',
       'Compositor de respostas isolado do polling e das mensagens em tempo real para impedir perda de caracteres durante a digitação.',
       'Correção definitiva do campo de resposta para impedir perda de letras durante atualizações em tempo real.',
@@ -983,7 +987,7 @@ function integrationsTab() {
           <div><span class="integration-kicker">Atividade recente</span><h2>Últimos eventos</h2></div>
           <div class="integration-event-history">
             ${(status.recentEvents || []).slice(0, 10).map((event) => `
-              <div><span class="status ${event.status === 'sent' ? 'status-success' : 'status-danger'}">${event.status === 'sent' ? 'Enviado' : 'Pendente'}</span><strong>${escapeHtml(event.type || 'Evento')}</strong><small>${escapeHtml(integrationTimestamp(event.sentAt || event.createdAt || event.occurredAt))}</small></div>
+              <div title="${escapeHtml(event.lastError || '')}"><span class="status ${event.status === 'sent' ? 'status-success' : 'status-danger'}">${event.status === 'sent' ? 'Enviado' : event.status === 'failed' ? 'Falhou' : 'Pendente'}</span><strong>${escapeHtml(event.type || 'Evento')}</strong><small>${escapeHtml(integrationTimestamp(event.sentAt || event.createdAt || event.occurredAt))}</small></div>
             `).join('') || '<div class="empty compact-empty">Nenhum evento processado neste ambiente.</div>'}
           </div>
         </article>
