@@ -74,6 +74,7 @@ const changelog = [
     version: '1.2',
     title: 'Central de integrações gUMperformance',
     items: [
+      'Correção de compatibilidade na leitura de grupos e conversas para impedir que um chat inconsistente bloqueie toda a sincronização.',
       'Novo menu Integrações exclusivo para o usuário principal.',
       'Monitoramento separado dos ambientes gUMperformance e gUMperformance beta.',
       'Indicadores de disponibilidade, execução, última verificação, eventos enviados e pendências.',
@@ -2333,7 +2334,7 @@ async function disconnectWhatsApp() {
     renderContent();
     toast('WhatsApp desconectado.');
   } catch (error) {
-    if (!silent) toast(error.message);
+    toast(error.message);
   }
 }
 
@@ -2482,7 +2483,7 @@ async function refreshConversations({ silent = false, preserveScroll = false, pr
     if (draft) requestAnimationFrame(() => restoreReplyDraft(draft));
     if (!silent) toast(newUnread && hadConversations ? `${newUnread} mensagem(ns) nova(s) recebida(s).` : 'Conversas atualizadas.');
   } catch (error) {
-    toast(error.message);
+    if (!silent) toast(error.message);
   }
 }
 

@@ -87,6 +87,12 @@ let isShuttingDown = false;
 let recentIncomingMessages = [];
 const avatarCache = new Map();
 const MEDIA_DOWNLOAD_LIMIT = 8;
+const CHAT_SNAPSHOT_CACHE_MS = 2500;
+let chatSnapshotCache = [];
+let chatSnapshotCacheAt = 0;
+let chatSnapshotPromise = null;
+let fullChatReadDisabledUntil = 0;
+let consecutiveChatReadFailures = 0;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -293,6 +299,9 @@ function startClient() {
 async function startClientInternal({ recovered = false } = {}) {
   if (isInitializing || isShuttingDown) return;
   isInitializing = true;
+  clearChatSnapshotCache();
+  fullChatReadDisabledUntil = 0;
+  consecutiveChatReadFailures = 0;
   status = 'loading';
   qrCodeDataUrl = null;
   lastError = null;
@@ -382,6 +391,7 @@ async function startClientInternal({ recovered = false } = {}) {
     status = 'ready';
     lastError = null;
     qrCodeDataUrl = null;
+    clearChatSnapshotCache();
     debugLog('WhatsApp pronto. Carregando grupos...');
     emitState();
     try {
@@ -400,6 +410,7 @@ async function startClientInternal({ recovered = false } = {}) {
   client.on('message', async (message) => {
     if (!io) return;
     try {
+      clearChatSnapshotCache();
       const summary = await messageSummary(message);
       if (!message.fromMe) {
         const identities = await messageIdentity(message);
@@ -442,6 +453,7 @@ async function startClientInternal({ recovered = false } = {}) {
     status = 'disconnected';
     lastError = null;
     cachedGroups = [];
+    clearChatSnapshotCache();
     emitState();
     if (Date.now() > manualDisconnectUntil) scheduleReconnect('evento disconnected');
   });
@@ -748,11 +760,117 @@ function chatSummary(chat) {
     id,
     name: chat.name || chat.formattedTitle || contactNumberFromId(id),
     isGroup,
+    isCurrentParticipant: !isGroup || isCurrentUserParticipant(chat),
     avatarUrl: cachedProfilePicUrlById(id),
     unreadCount: chat.unreadCount || 0,
     timestamp: chat.timestamp || null,
     lastMessage: lastMessage?.body || (lastMessage?.hasMedia ? '[mídia]' : '')
   };
+}
+
+function normalizeChatSnapshot(chat) {
+  const id = String(chat?.id || '');
+  if (!id) return null;
+  return {
+    id,
+    name: chat.name || contactNumberFromId(id),
+    isGroup: Boolean(chat.isGroup),
+    isCurrentParticipant: chat.isCurrentParticipant !== false,
+    avatarUrl: cachedProfilePicUrlById(id),
+    unreadCount: Number(chat.unreadCount || 0),
+    timestamp: Number(chat.timestamp || 0) || null,
+    lastMessage: chat.lastMessage || ''
+  };
+}
+
+async function readMinimalChatSnapshots() {
+  if (!client?.pupPage) throw new Error('WhatsApp Web ainda nao terminou de carregar.');
+
+  return withTimeout(client.pupPage.evaluate(() => {
+    const collections = window.require('WAWebCollections');
+    const chats = collections?.Chat?.getModelsArray?.() || [];
+    const messages = collections?.Msg;
+
+    return chats.map((chat) => {
+      try {
+        const id = chat?.id?._serialized || chat?.id?.toString?.() || '';
+        if (!id) return null;
+
+        let lastMessage = chat?.lastMessage || null;
+        if (!lastMessage && chat?.lastReceivedKey?._serialized && messages?.get) {
+          lastMessage = messages.get(chat.lastReceivedKey._serialized);
+        }
+
+        const body = lastMessage?.body || lastMessage?.caption || '';
+        const type = String(lastMessage?.type || '');
+        const hasMedia = Boolean(lastMessage?.mediaData || (type && !['chat', 'revoked'].includes(type)));
+        const timestamp = Number(chat?.timestamp || chat?.t || lastMessage?.timestamp || lastMessage?.t || 0);
+
+        return {
+          id,
+          name: chat?.name || chat?.formattedTitle || chat?.contact?.pushname || id.replace(/@.*/, ''),
+          isGroup: Boolean(chat?.isGroup || chat?.groupMetadata || id.endsWith('@g.us')),
+          unreadCount: Number(chat?.unreadCount || 0),
+          timestamp,
+          lastMessage: body || (hasMedia ? '[midia]' : '')
+        };
+      } catch (error) {
+        return null;
+      }
+    }).filter(Boolean);
+  }), 20000, 'A lista de conversas demorou para sincronizar.');
+}
+
+async function getChatSnapshots({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && chatSnapshotCache.length && now - chatSnapshotCacheAt < CHAT_SNAPSHOT_CACHE_MS) {
+    return chatSnapshotCache;
+  }
+  if (chatSnapshotPromise) return chatSnapshotPromise;
+
+  chatSnapshotPromise = (async () => {
+    let snapshots;
+    try {
+      if (Date.now() >= fullChatReadDisabledUntil) {
+        try {
+          const chats = await withTimeout(client.getChats(), 30000, 'A lista de conversas demorou para sincronizar.');
+          snapshots = chats.map(chatSummary);
+          fullChatReadDisabledUntil = 0;
+        } catch (error) {
+          fullChatReadDisabledUntil = Date.now() + 5 * 60 * 1000;
+          debugLog('Leitura completa de conversas falhou; usando leitura resiliente', error.stack || error.message);
+        }
+      }
+
+      if (!snapshots) {
+        snapshots = (await readMinimalChatSnapshots()).map(normalizeChatSnapshot).filter(Boolean);
+      }
+      consecutiveChatReadFailures = 0;
+    } catch (error) {
+      consecutiveChatReadFailures += 1;
+      debugLog('Leitura resiliente de conversas falhou', error.stack || error.message);
+      if (consecutiveChatReadFailures >= 3 && Date.now() > manualDisconnectUntil) {
+        scheduleReconnect('falhas consecutivas ao ler conversas');
+      }
+      const friendlyError = new Error('O WhatsApp Web ainda esta sincronizando as conversas. A conexao sera recuperada automaticamente; tente novamente em alguns segundos.');
+      friendlyError.status = 503;
+      throw friendlyError;
+    }
+
+    chatSnapshotCache = snapshots;
+    chatSnapshotCacheAt = Date.now();
+    return snapshots;
+  })().finally(() => {
+    chatSnapshotPromise = null;
+  });
+
+  return chatSnapshotPromise;
+}
+
+function clearChatSnapshotCache() {
+  chatSnapshotCache = [];
+  chatSnapshotCacheAt = 0;
+  chatSnapshotPromise = null;
 }
 
 async function messageSummary(message, { includeMedia = true, includeAvatar = true, includeChatName = true } = {}) {
@@ -842,7 +960,7 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
 
     for (let attempt = 0; attempt < retries; attempt += 1) {
       try {
-        chats = await client.getChats();
+        chats = await getChatSnapshots({ force: true });
         break;
       } catch (error) {
         lastRefreshError = error;
@@ -854,10 +972,10 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
     if (!chats) throw lastRefreshError || new Error('Nao consegui carregar os grupos.');
 
     cachedGroups = chats
-      .filter((chat) => chat.isGroup && isCurrentUserParticipant(chat))
+      .filter((chat) => chat.isGroup && chat.isCurrentParticipant !== false)
       .map((chat) => ({
-        id: chat.id._serialized,
-        name: chat.name || chat.formattedTitle || chat.id?._serialized || 'Grupo sem nome'
+        id: chat.id?._serialized || chat.id,
+        name: chat.name || chat.formattedTitle || chat.id?._serialized || chat.id || 'Grupo sem nome'
       }))
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
@@ -873,9 +991,8 @@ async function refreshGroups({ retries = 3, waitForConnection = false } = {}) {
 
 async function listConversations() {
   requireReady();
-  const chats = await client.getChats();
-  const topChats = chats.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 80);
-  return topChats.map(chatSummary);
+  const chats = await getChatSnapshots();
+  return [...chats].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 80);
 }
 
 async function listMessages(chatId, limit = 24) {
