@@ -1,4 +1,13 @@
 const app = document.querySelector('#app');
+
+function readSessionJson(key, fallback) {
+  try {
+    return JSON.parse(sessionStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
 const dayLabels = {
   sun: 'Domingo',
   mon: 'Segunda',
@@ -22,6 +31,7 @@ let state = {
   selectedConversationId: null,
   messages: [],
   replyBotName: localStorage.getItem('replyBotName') || '',
+  replyDrafts: readSessionJson('replyDrafts', {}),
   shouldScrollMessages: false,
   unreadSnapshot: {},
   clearedUnread: {},
@@ -147,6 +157,8 @@ let audioRecordingAnimation = null;
 let conversationRequestId = 0;
 let lastReplyInputAt = 0;
 let replyCompositionActive = false;
+let replyResizeFrame = null;
+let replyDraftPersistTimer = null;
 
 const socket = io();
 socket.on('whatsapp:state', (payload) => {
@@ -467,18 +479,71 @@ function restoreConversationScroll() {
   if (list) list.scrollTop = state.conversationListScroll;
 }
 
+function replyDraftKey(conversationId = state.selectedConversationId) {
+  return String(conversationId || '');
+}
+
+function persistReplyDrafts() {
+  clearTimeout(replyDraftPersistTimer);
+  replyDraftPersistTimer = setTimeout(() => {
+    try {
+      sessionStorage.setItem('replyDrafts', JSON.stringify(state.replyDrafts));
+    } catch {
+      // The in-memory draft still protects typing when storage is unavailable.
+    }
+  }, 120);
+}
+
+function storedReplyDraft(conversationId = state.selectedConversationId) {
+  const key = replyDraftKey(conversationId);
+  return key ? state.replyDrafts[key] || null : null;
+}
+
+function saveReplyDraftFromInput(messageInput, { restoreFocus = false } = {}) {
+  const conversationId = messageInput?.dataset.conversationId || state.selectedConversationId;
+  const key = replyDraftKey(conversationId);
+  if (!key || !messageInput) return null;
+
+  const form = messageInput.form;
+  const draft = {
+    conversationId,
+    message: messageInput.value,
+    replyBotName: form?.elements.replyBotName?.value || state.replyBotName,
+    selectionStart: messageInput.selectionStart,
+    selectionEnd: messageInput.selectionEnd,
+    wasFocused: restoreFocus || document.activeElement === messageInput
+  };
+  state.replyDrafts[key] = draft;
+  persistReplyDrafts();
+
+  // An update may replace the composer between keydown and input. Mirror the
+  // completed keystroke into the newly mounted textarea instead of losing it.
+  const mountedInput = state.selectedConversationId === conversationId
+    ? document.querySelector('#replyForm textarea[name="message"]')
+    : null;
+  if (mountedInput && mountedInput !== messageInput && mountedInput.value !== draft.message) {
+    mountedInput.value = draft.message;
+    if (Number.isInteger(draft.selectionStart) && Number.isInteger(draft.selectionEnd)) {
+      mountedInput.setSelectionRange(draft.selectionStart, draft.selectionEnd);
+    }
+    if (draft.wasFocused) mountedInput.focus({ preventScroll: true });
+    autoResizeReplyTextarea(mountedInput);
+  }
+  return draft;
+}
+
+function clearReplyDraft(conversationId = state.selectedConversationId) {
+  const key = replyDraftKey(conversationId);
+  if (!key) return;
+  delete state.replyDrafts[key];
+  persistReplyDrafts();
+}
+
 function captureReplyDraft() {
   const form = document.querySelector('#replyForm');
-  if (!form) return null;
+  if (!form) return storedReplyDraft();
   const messageInput = form.elements.message;
-  return {
-    conversationId: state.selectedConversationId,
-    message: messageInput?.value || '',
-    replyBotName: form.elements.replyBotName?.value || state.replyBotName,
-    selectionStart: messageInput?.selectionStart,
-    selectionEnd: messageInput?.selectionEnd,
-    wasFocused: document.activeElement === messageInput
-  };
+  return saveReplyDraftFromInput(messageInput);
 }
 
 function restoreReplyDraft(draft) {
@@ -493,14 +558,17 @@ function restoreReplyDraft(draft) {
     if (draft.wasFocused) form.elements.message.focus({ preventScroll: true });
   }
   if (form.elements.replyBotName) form.elements.replyBotName.value = draft.replyBotName;
-  autoResizeReplyTextarea();
+  autoResizeReplyTextarea(form.elements.message);
 }
 
-function autoResizeReplyTextarea() {
-  const textarea = document.querySelector('#replyForm textarea[name="message"]');
+function autoResizeReplyTextarea(textarea = document.querySelector('#replyForm textarea[name="message"]')) {
   if (!textarea) return;
-  textarea.style.height = 'auto';
-  textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  cancelAnimationFrame(replyResizeFrame);
+  replyResizeFrame = requestAnimationFrame(() => {
+    if (!textarea.isConnected) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 42), 160)}px`;
+  });
 }
 
 function isReplyEditingActive() {
@@ -1164,6 +1232,7 @@ function selectedConversation() {
 
 function conversationMessages() {
   const conversation = selectedConversation();
+  const replyDraft = storedReplyDraft();
   const avatar = conversation?.avatarUrl
     ? `<img class="conversation-avatar" src="${escapeHtml(conversation.avatarUrl)}" alt="">`
     : `<div class="conversation-avatar">${conversation?.isGroup ? 'G' : 'C'}</div>`;
@@ -1205,7 +1274,7 @@ function conversationMessages() {
           ${Array.from({ length: 18 }, (_, index) => `<i style="--level:${(index % 5) + 2}"></i>`).join('')}
         </div>
       </div>
-      <textarea class="reply-message" name="message" placeholder="Digite uma resposta" rows="1" autocomplete="off"></textarea>
+      <textarea class="reply-message" name="message" data-conversation-id="${escapeHtml(state.selectedConversationId || '')}" placeholder="Digite uma resposta" rows="1" autocomplete="off" autocapitalize="sentences" spellcheck="true">${escapeHtml(replyDraft?.message || '')}</textarea>
       <button class="primary" type="submit">Enviar</button>
     </form>
   `;
@@ -1658,17 +1727,28 @@ function bindContent() {
     state.replyBotName = event.target.value;
     localStorage.setItem('replyBotName', state.replyBotName);
   });
-  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('input', () => {
+  const replyMessageInput = document.querySelector('#replyForm textarea[name="message"]');
+  replyMessageInput?.addEventListener('beforeinput', () => {
     lastReplyInputAt = Date.now();
-    autoResizeReplyTextarea();
   });
-  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('compositionstart', () => {
+  replyMessageInput?.addEventListener('input', (event) => {
+    lastReplyInputAt = Date.now();
+    saveReplyDraftFromInput(event.currentTarget, { restoreFocus: true });
+    autoResizeReplyTextarea(event.currentTarget);
+  });
+  replyMessageInput?.addEventListener('keydown', (event) => {
+    lastReplyInputAt = Date.now();
+    const sourceInput = event.currentTarget;
+    setTimeout(() => saveReplyDraftFromInput(sourceInput, { restoreFocus: true }), 0);
+  });
+  replyMessageInput?.addEventListener('compositionstart', () => {
     replyCompositionActive = true;
   });
-  document.querySelector('#replyForm textarea[name="message"]')?.addEventListener('compositionend', () => {
+  replyMessageInput?.addEventListener('compositionend', (event) => {
     replyCompositionActive = false;
     lastReplyInputAt = Date.now();
-    autoResizeReplyTextarea();
+    saveReplyDraftFromInput(event.currentTarget, { restoreFocus: true });
+    autoResizeReplyTextarea(event.currentTarget);
   });
   requestAnimationFrame(autoResizeReplyTextarea);
   document.querySelector('#attachButton')?.addEventListener('click', () => document.querySelector('#replyAttachment')?.click());
@@ -1682,7 +1762,8 @@ function bindContent() {
         input.value = `${input.value.slice(0, start)}${button.dataset.emoji}${input.value.slice(end)}`;
         input.selectionStart = input.selectionEnd = start + button.dataset.emoji.length;
         lastReplyInputAt = Date.now();
-        autoResizeReplyTextarea();
+        saveReplyDraftFromInput(input, { restoreFocus: true });
+        autoResizeReplyTextarea(input);
         input.focus();
       }
     });
@@ -2159,6 +2240,8 @@ async function sendConversationReply(event) {
       method: 'POST',
       body: JSON.stringify(body)
     });
+    if (form.elements.message) form.elements.message.value = '';
+    clearReplyDraft(state.selectedConversationId);
     await openConversation(state.selectedConversationId);
     toast('Mensagem enviada.');
   } catch (error) {

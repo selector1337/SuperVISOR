@@ -25,6 +25,7 @@ loadEnvFile();
 const store = require('./store');
 const scheduler = require('./scheduler');
 const whatsapp = require('./whatsapp');
+const { createGumIntegration } = require('./gum-integration');
 
 const app = express();
 const server = http.createServer(app);
@@ -44,7 +45,21 @@ app.use(
     }
   })
 );
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-store');
+      return;
+    }
+    if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
+app.use('/api/integrations/gum', createGumIntegration({
+  whatsapp,
+  dataDir: path.join(__dirname, '..', 'data')
+}));
 
 function requireAuth(req, res, next) {
   if (!req.session.user) {
