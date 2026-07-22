@@ -78,6 +78,10 @@ const changelog = [
       'Janela antirrepetição configurável para impedir cobranças consecutivas sobre o mesmo evento.',
       'Confirmação de entrega ampliada para impedir reenvios quando o WhatsApp demora mais de 15 segundos para responder.',
       'Deduplicação persistente por evento, inclusive quando o horário dinâmico altera o texto da mensagem.',
+      'Correção de concorrência no histórico para impedir que alertas simultâneos apaguem confirmações anteriores e sejam reenviados.',
+      'Deduplicação compartilhada entre produção e beta para que o mesmo evento operacional gere apenas uma cobrança.',
+      'Reconciliação antes de tentativas automáticas: o gUM consulta o receptor e bloqueia o reenvio enquanto o evento já estiver em processamento.',
+      'Bloqueio preventivo dos disparos quando o histórico antirrepetição estiver ilegível ou indisponível.',
       'Variáveis de horário compatíveis com grafias acentuadas e não acentuadas, sempre preenchidas com o horário real.',
       'Assinatura opcional do bot aplicada tanto na origem quanto no receptor, sem risco de nome duplicado.',
       'Resolução ampliada de fotos de contatos, incluindo identificadores LID, número telefônico e miniatura local do WhatsApp.',
@@ -987,7 +991,7 @@ function integrationsTab() {
           <div><span class="integration-kicker">Atividade recente</span><h2>Últimos eventos</h2></div>
           <div class="integration-event-history">
             ${(status.recentEvents || []).slice(0, 10).map((event) => `
-              <div title="${escapeHtml(event.lastError || '')}"><span class="status ${event.status === 'sent' ? 'status-success' : 'status-danger'}">${event.status === 'sent' ? 'Enviado' : event.status === 'failed' ? 'Falhou' : 'Pendente'}</span><strong>${escapeHtml(event.type || 'Evento')}</strong><small>${escapeHtml(integrationTimestamp(event.sentAt || event.createdAt || event.occurredAt))}</small></div>
+              <div title="${escapeHtml(event.lastError || '')}"><span class="status ${event.status === 'sent' ? 'status-success' : 'status-danger'}">${event.status === 'sent' ? 'Enviado' : event.status === 'failed' ? 'Falhou' : event.status === 'delivery_unknown' ? 'Revisar' : 'Pendente'}</span><strong>${escapeHtml(event.type || 'Evento')}</strong><small>${escapeHtml(integrationTimestamp(event.sentAt || event.createdAt || event.occurredAt))}</small></div>
             `).join('') || '<div class="empty compact-empty">Nenhum evento processado neste ambiente.</div>'}
           </div>
         </article>

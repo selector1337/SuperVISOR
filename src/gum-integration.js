@@ -45,13 +45,15 @@ function createGumIntegration({ whatsapp, dataDir }) {
       return { events: Array.isArray(parsed.events) ? parsed.events : [] };
     } catch (error) {
       console.error('Nao foi possivel ler o historico da integracao gUMperformance:', error);
-      return { events: [] };
+      const historyError = new Error('O historico antirrepeticao da integracao esta indisponivel. O envio foi bloqueado para evitar mensagens duplicadas.');
+      historyError.status = 503;
+      throw historyError;
     }
   }
 
   function writeHistory(history) {
     fs.mkdirSync(dataDir, { recursive: true });
-    const temporaryFile = `${historyFile}.tmp`;
+    const temporaryFile = `${historyFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
     const events = (history.events || []).slice(-MAX_EVENT_HISTORY);
     fs.writeFileSync(temporaryFile, JSON.stringify({ events }, null, 2));
     fs.renameSync(temporaryFile, historyFile);
@@ -96,6 +98,13 @@ function createGumIntegration({ whatsapp, dataDir }) {
   router.get('/events', (req, res) => {
     const limit = Math.max(1, Math.min(250, Number(req.query.limit || 50)));
     res.json({ events: readHistory().events.slice(-limit).reverse() });
+  });
+
+  router.get('/events/:eventId', (req, res) => {
+    const eventId = String(req.params.eventId || '').trim();
+    const event = readHistory().events.find((item) => item.eventId === eventId);
+    if (!event) return res.status(404).json({ error: 'Evento ainda nao recebido pelo SuperVISOR.' });
+    return res.json({ event });
   });
 
   router.post('/events', async (req, res, next) => {
@@ -191,8 +200,10 @@ function createGumIntegration({ whatsapp, dataDir }) {
         groupIds: pendingGroupIds,
         contactIds: pendingContactIds
       }, integrationMessage(message, botName));
+      const latestHistory = readHistory();
+      const latestPrevious = latestHistory.events.find((item) => item.eventId === eventId);
       const mergedResults = [
-        ...(previous?.results || []),
+        ...(latestPrevious?.results || []),
         ...results.filter((result) => !successfulTargets.has(result.targetId))
       ];
       const allSent = [...groupIds, ...contactIds].every((id) => mergedResults.some((result) => result.targetId === id && result.ok));
@@ -201,7 +212,7 @@ function createGumIntegration({ whatsapp, dataDir }) {
         type: String(req.body.type || 'notification'),
         source: String(req.body.source || 'gUMperformance'),
         occurredAt: req.body.occurredAt || new Date().toISOString(),
-        receivedAt: previous?.receivedAt || new Date().toISOString(),
+        receivedAt: latestPrevious?.receivedAt || previous?.receivedAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         status: allSent ? 'sent' : 'partial',
         message,
@@ -212,9 +223,9 @@ function createGumIntegration({ whatsapp, dataDir }) {
         contactIds,
         results: mergedResults
       };
-      history.events = history.events.filter((item) => item.eventId !== eventId);
-      history.events.push(record);
-      writeHistory(history);
+      latestHistory.events = latestHistory.events.filter((item) => item.eventId !== eventId);
+      latestHistory.events.push(record);
+      writeHistory(latestHistory);
       return { ok: allSent, duplicate: false, eventId, results: mergedResults };
     })();
 
