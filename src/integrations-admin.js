@@ -5,6 +5,8 @@ const ALLOWED_CONFIG_FIELDS = new Set([
   'intervalSeconds',
   'graceMinutes',
   'cooldownMinutes',
+  'repeatEnabled',
+  'repeatMinutes',
   'botName',
   'expectedLoginTime',
   'defaultGroupIds',

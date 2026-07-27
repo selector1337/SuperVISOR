@@ -82,6 +82,11 @@ const changelog = [
       'Deduplicação compartilhada entre produção e beta para que o mesmo evento operacional gere apenas uma cobrança.',
       'Reconciliação antes de tentativas automáticas: o gUM consulta o receptor e bloqueia o reenvio enquanto o evento já estiver em processamento.',
       'Bloqueio preventivo dos disparos quando o histórico antirrepetição estiver ilegível ou indisponível.',
+      'Trava atômica persistente criada antes do envio: cada ocorrência pode gerar no máximo uma mensagem, mesmo após reinícios ou perda do histórico principal.',
+      'Repetição automática desativada por padrão e disponível somente por uma opção explícita no painel.',
+      'Corte temporal de ativação para impedir o envio em massa de tarefas, cards e entradas atrasadas anteriores à integração.',
+      'Identificação semântica de tarefas e cards para impedir duplicação quando identificadores internos forem regenerados.',
+      'Tratamento mais natural dos colaboradores, utilizando apenas o primeiro nome e corrigindo nomes totalmente em maiúsculas.',
       'Variáveis de horário compatíveis com grafias acentuadas e não acentuadas, sempre preenchidas com o horário real.',
       'Assinatura opcional do bot aplicada tanto na origem quanto no receptor, sem risco de nome duplicado.',
       'Resolução ampliada de fotos de contatos, incluindo identificadores LID, número telefônico e miniatura local do WhatsApp.',
@@ -922,7 +927,11 @@ function integrationsTab() {
             <label>Tolerância para atrasos (minutos)<input name="graceMinutes" type="number" min="0" max="120" value="${Number(config.graceMinutes || 5)}"></label>
             <label>Horário padrão de entrada<input name="expectedLoginTime" type="time" value="${escapeHtml(config.expectedLoginTime || '09:00')}"></label>
             <label>Nome do bot (opcional)<input name="botName" maxlength="80" placeholder="SuperVISOR" value="${escapeHtml(config.botName || '')}"></label>
-            <label>Não repetir o mesmo alerta por (minutos)<input name="cooldownMinutes" type="number" min="1" max="1440" value="${Number(config.cooldownMinutes || 360)}"></label>
+            <div class="integration-repeat-field">
+              <span class="field-title">Repetição de cobranças</span>
+              <label class="integration-switch"><input name="repeatEnabled" type="checkbox" ${config.repeatEnabled ? 'checked' : ''}><span></span><strong>Permitir repetição automática</strong></label>
+            </div>
+            <label>Intervalo entre repetições (minutos)<input name="repeatMinutes" type="number" min="1" max="1440" value="${Number(config.repeatMinutes || config.cooldownMinutes || 360)}" ${config.repeatEnabled ? '' : 'disabled'}></label>
           </div>
         </section>
 
@@ -1895,7 +1904,9 @@ function captureIntegrationConfig() {
   config.graceMinutes = Number(form.elements.graceMinutes?.value || 0);
   config.expectedLoginTime = form.elements.expectedLoginTime?.value || '09:00';
   config.botName = String(form.elements.botName?.value || '').trim();
-  config.cooldownMinutes = Number(form.elements.cooldownMinutes?.value || 360);
+  config.repeatEnabled = Boolean(form.elements.repeatEnabled?.checked);
+  config.repeatMinutes = Number(form.elements.repeatMinutes?.value || 360);
+  config.cooldownMinutes = config.repeatMinutes;
   config.defaultGroupIds = [...form.querySelectorAll('[data-integration-default-group]:checked')].map((input) => input.value);
   config.enabledEvents = Object.fromEntries(
     [...form.querySelectorAll('[data-integration-event-enabled]')].map((input) => [input.dataset.integrationEventEnabled, input.checked])
@@ -1995,6 +2006,10 @@ function bindIntegrationsContent() {
     });
   });
   document.querySelector('#integrationConfigForm')?.addEventListener('submit', saveIntegrationConfig);
+  document.querySelector('[name="repeatEnabled"]')?.addEventListener('change', (event) => {
+    const repeatMinutes = document.querySelector('[name="repeatMinutes"]');
+    if (repeatMinutes) repeatMinutes.disabled = !event.target.checked;
+  });
   document.querySelector('#addPersonIntegrationGroup')?.addEventListener('click', () => addIntegrationMapping('user'));
   document.querySelector('#addDepartmentIntegrationGroup')?.addEventListener('click', () => addIntegrationMapping('department'));
   document.querySelectorAll('[data-remove-integration-mapping]').forEach((button) => {

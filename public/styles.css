@@ -197,6 +197,17 @@
   box-shadow: 0 0 12px var(--accent);
 }
 
+.integration-repeat-field {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
 .integration-group-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

@@ -36,7 +36,43 @@ function eventFingerprint(body, groupIds, contactIds) {
 function createGumIntegration({ whatsapp, dataDir }) {
   const router = express.Router();
   const historyFile = path.join(dataDir, 'gum-integration-events.json');
+  const claimsDir = path.join(dataDir, 'gum-integration-claims');
   const processing = new Map();
+
+  function claimPath(fingerprint) {
+    const hash = crypto.createHash('sha256').update(String(fingerprint)).digest('hex');
+    return path.join(claimsDir, `${hash}.json`);
+  }
+
+  function readClaim(fingerprint) {
+    const file = claimPath(fingerprint);
+    if (!fs.existsSync(file)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (error) {
+      const claimError = new Error('Uma trava antirrepeticao existe, mas nao pode ser lida. O envio foi bloqueado por seguranca.');
+      claimError.status = 503;
+      throw claimError;
+    }
+  }
+
+  function createClaim(fingerprint, data) {
+    fs.mkdirSync(claimsDir, { recursive: true });
+    const file = claimPath(fingerprint);
+    let descriptor;
+    try {
+      descriptor = fs.openSync(file, 'wx');
+      fs.writeFileSync(descriptor, JSON.stringify({ ...data, fingerprint }, null, 2));
+      fs.closeSync(descriptor);
+      return { created: true, claim: { ...data, fingerprint } };
+    } catch (error) {
+      if (descriptor !== undefined) {
+        try { fs.closeSync(descriptor); } catch {}
+      }
+      if (error.code === 'EEXIST') return { created: false, claim: readClaim(fingerprint) };
+      throw error;
+    }
+  }
 
   function readHistory() {
     try {
@@ -146,6 +182,18 @@ function createGumIntegration({ whatsapp, dataDir }) {
         throw error;
       }
 
+      const existingClaim = readClaim(requestedFingerprint);
+      if (existingClaim) {
+        return {
+          ok: true,
+          duplicate: true,
+          locked: true,
+          eventId,
+          previousEventId: existingClaim.eventId || null,
+          results: []
+        };
+      }
+
       const history = readHistory();
       const previous = history.events.find((item) => item.eventId === eventId);
       const fingerprint = requestedFingerprint;
@@ -159,6 +207,11 @@ function createGumIntegration({ whatsapp, dataDir }) {
       ));
 
       if (!previous && recentEquivalent) {
+        createClaim(fingerprint, {
+          eventId: recentEquivalent.eventId,
+          claimedAt: recentEquivalent.receivedAt || new Date().toISOString(),
+          source: recentEquivalent.source || 'gUMperformance'
+        });
         return {
           ok: true,
           duplicate: true,
@@ -166,6 +219,23 @@ function createGumIntegration({ whatsapp, dataDir }) {
           eventId,
           previousEventId: recentEquivalent.eventId,
           results: recentEquivalent.results || []
+        };
+      }
+
+      const claimResult = createClaim(fingerprint, {
+        eventId,
+        claimedAt: new Date().toISOString(),
+        source: String(req.body.source || 'gUMperformance'),
+        type: String(req.body.type || 'notification')
+      });
+      if (!claimResult.created) {
+        return {
+          ok: true,
+          duplicate: true,
+          locked: true,
+          eventId,
+          previousEventId: claimResult.claim?.eventId || null,
+          results: []
         };
       }
 
