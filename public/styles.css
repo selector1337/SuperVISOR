@@ -1,5 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap");
 
+/* Estilos originais (v1.2.6) mantidos como camada base; o redesign fica em ui.css. */
+@layer legacy {
+
 :root {
   color-scheme: dark;
   --bg: #070b13;
@@ -3062,4 +3065,5 @@ select:focus {
   .row > button {
     flex: 1 1 auto;
   }
+}
 }

@@ -34,6 +34,28 @@ Esta aplicação usa `whatsapp-web.js`, que automatiza o WhatsApp Web. Use apena
 - Exportação de relatórios de estatísticas em Excel e PDF.
 - Changelog no painel para acompanhar mudanças entre versões.
 - Tema dark/light com identidade visual SuperVISOR.
+- Central de integrações para configurar separadamente gUMperformance e gUMperformance beta.
+- Roteamento das automações por pessoa, tipo de evento, departamento ou grupos padrão.
+- Modelos editáveis de mensagens com variáveis dinâmicas para tarefas, cards, acessos, metas, respostas e advertências.
+- Status, teste controlado, verificação manual e histórico recente das integrações no painel.
+
+## Integração com gUMperformance
+
+O menu `Integrações` fica disponível para o usuário principal. Ele consulta os dois ambientes por rede interna e nunca envia o segredo compartilhado ao navegador.
+
+No `.env` do SuperVISOR:
+
+```text
+GUM_INTEGRATION_SECRET=SEGREDO_COMPARTILHADO
+GUM_PERFORMANCE_API_URL=http://127.0.0.1:4174
+GUM_PERFORMANCE_BETA_API_URL=http://127.0.0.1:4175
+```
+
+Nos arquivos `.env` do gUMperformance e do beta, use o mesmo `GUM_INTEGRATION_SECRET` e configure `GUM_SUPERVISOR_URL=http://127.0.0.1:3000` quando os aplicativos estiverem no mesmo servidor.
+
+A prioridade dos destinos é: pessoa, tipo de evento, departamento e grupos padrão. O botão de teste envia uma mensagem real e sempre pede confirmação antes do envio.
+
+O nome do bot é opcional e, quando preenchido, é incluído automaticamente no início de cada alerta. A janela antirrepetição impede que a mesma cobrança seja reenviada em sequência; o padrão é de 360 minutos e pode ser ajustado entre 1 e 1440 minutos no painel.
 
 ## Requisitos
 
@@ -328,4 +350,14 @@ pm2 save
 
 ## Versão
 
-Versão atual: `1.1.0`.
+Versão atual: `1.3.0`.
+
+## Interface
+
+O visual fica em `public/ui.css` (os estilos antigos continuam em `public/styles.css` como camada base). O front-end da demo é gerado a partir do app tradicional:
+
+```powershell
+npm run build:demo-ui
+```
+
+Edite sempre `public/app.js` e `public/ui.css` e rode o comando acima para atualizar `demo/public`.

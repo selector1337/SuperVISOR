@@ -1,4 +1,5 @@
 const app = document.querySelector('#app');
+const APP_VERSION = '1.3';
 
 function readSessionJson(key, fallback) {
   try {
@@ -17,6 +18,57 @@ const dayLabels = {
   fri: 'Sexta',
   sat: 'Sábado'
 };
+
+const dayShortLabels = { sun: 'Dom', mon: 'Seg', tue: 'Ter', wed: 'Qua', thu: 'Qui', fri: 'Sex', sat: 'Sáb' };
+const dayKeysByIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+const iconPaths = {
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.6c1.9.7 3.1 2.6 3.5 5.4"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  plug: '<path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.1-8 9-4.6-.9-8-4.5-8-9V6z"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  pause: '<path d="M9 5v14M15 5v14"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>',
+  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"/><path d="M4 4v4h4M20 20v-4h-4"/>',
+  clip: '<path d="M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4L15 7"/>',
+  mic: '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  pin: '<path d="M9 4h6l-1 6 4 3H6l4-3zM12 13v7"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+  logout: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h10"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  filter: '<path d="M4 5h16l-6 7v6l-4 2v-8z"/>',
+  bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
+  italic: '<path d="M10 5h8M6 19h8M14 5l-4 14"/>',
+  strike: '<path d="M4 12h16M16 7a4 3 0 0 0-8 0c0 4 8 2.5 8 7a4 3 0 0 1-8 0"/>'
+};
+
+function icon(name, size = 18) {
+  return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name] || ''}</svg>`;
+}
+
+function initialsOf(value, fallback = '?') {
+  const parts = String(value || '').replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return fallback;
+  return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
 
 let state = {
   user: null,
@@ -49,6 +101,9 @@ let state = {
   scheduleFilterId: '',
   scheduleFilterDay: 'all',
   scheduleFilterDate: '',
+  scheduleView: 'all',
+  scheduleStatusFilter: 'all',
+  conversationSearch: '',
   scheduleGroupSearch: '',
   scheduleContactSearch: '',
   editingContactId: null,
@@ -70,6 +125,22 @@ let state = {
 };
 
 const changelog = [
+  {
+    version: '1.3',
+    title: 'Nova interface',
+    items: [
+      'Menu lateral com ícones, seções e status do WhatsApp sempre visível.',
+      'Agendamentos em linha do tempo, com indicadores do dia, próximo envio e taxa de sucesso.',
+      'Formulário de agendamento em três passos, com dias da semana em botões e prévia da mensagem no WhatsApp.',
+      'Filtros rápidos por status e visualização de hoje ou de todos os agendamentos.',
+      'Datas específicas e trocas de filtro sem perder o texto já digitado no formulário.',
+      'Conversas com busca, horário da última mensagem, divisores por dia e aviso do próximo envio agendado.',
+      'Estatísticas com gráfico da janela de atividade (primeira e última mensagem) por participante.',
+      'Tela de conexão do WhatsApp com instruções passo a passo.',
+      'Passo a passo inicial para conectar, revisar contatos e criar o primeiro agendamento.',
+      'Navegação inferior no celular e tema claro revisado.'
+    ]
+  },
   {
     version: '1.2',
     title: 'Central de integrações gUMperformance',
@@ -205,7 +276,8 @@ socket.on('whatsapp:state', (payload) => {
   if (JSON.stringify(state.whatsapp) === JSON.stringify(payload)) return;
   state.whatsapp = payload;
   updateLiveStatus();
-  if (state.tab === 'whatsapp' || state.tab === 'schedules') renderContentQueued();
+  if (state.tab === 'whatsapp') renderContentQueued();
+  if (state.tab === 'schedules') requestAnimationFrame(renderScheduleListPreservingForm);
 });
 
 socket.on('whatsapp:message', async (message) => {
@@ -293,7 +365,7 @@ function toast(message) {
         : `<div class="toast-icon">${escapeHtml(icon)}</div>`}
     </div>
     <div class="toast-copy">
-      <small>Nova mensagem</small>
+      <small>${typeof message === 'object' ? 'Nova mensagem' : 'Aviso do painel'}</small>
       <strong>${escapeHtml(title)}</strong>
       <span>${escapeHtml(body)}</span>
     </div>
@@ -388,26 +460,63 @@ function logoMarkup(size = 'default') {
   `;
 }
 
+function brandMarkup() {
+  return `
+    <div class="brand">
+      <span class="brand-mark">${icon('check', 18)}</span>
+      <div class="brand-copy">
+        ${logoMarkup()}
+        <span>Gestor de equipes</span>
+      </div>
+    </div>
+  `;
+}
+
+function authHeroMarkup() {
+  return `
+    <div class="auth-hero-copy">
+      <h2>Sua equipe no WhatsApp, no horário certo.</h2>
+      <p>Agende comunicados, acompanhe conversas e veja quem já começou o dia, tudo em um painel.</p>
+    </div>
+    <div class="auth-hero-art" aria-hidden="true">
+      <div class="hero-card">
+        <span class="hero-card-label">Hoje</span>
+        <div class="hero-row"><b class="is-done">08:00</b><span>Bom dia, equipe</span><i class="badge badge-success">Enviado</i></div>
+        <div class="hero-row"><b class="is-next">14:00</b><span>Reunião de metas</span><i class="badge badge-info">Próximo</i></div>
+        <div class="hero-row"><b>17:45</b><span>Fechamento do dia</span><i class="badge badge-neutral">Aguardando</i></div>
+      </div>
+      <div class="hero-chat">
+        <span class="hero-card-label">Equipe de vendas</span>
+        <div class="wa-bubble"><strong class="wa-bot">SuperVISOR</strong><span class="wa-text">Hoje às 15h temos a reunião de metas da semana.</span><span class="wa-time">14:00 ✓✓</span></div>
+      </div>
+    </div>
+  `;
+}
+
 function renderAuth() {
   const isSetup = !state.hasUsers;
   app.innerHTML = `
     <section class="auth-shell">
-      <button class="changelog-button" id="changelogButton" type="button">v1.2</button>
-      <div class="auth-brand">
-        <div class="logo-mark">✓</div>
-        ${logoMarkup('large')}
-        <span>versão 1.2</span>
-      </div>
-      <form class="auth-panel form" id="authForm">
-        <div>
-          <h1>${isSetup ? 'Criar administrador' : 'Entrar na sua conta'}</h1>
-          <p class="muted">${isSetup ? 'Configure o primeiro acesso do painel.' : 'Acesse o dashboard do SuperVISOR'}</p>
+      <div class="auth-hero">
+        <div class="auth-brand">
+          ${brandMarkup()}
         </div>
-        ${isSetup ? '<label>Nome<input name="name" required minlength="2" autocomplete="name"></label>' : ''}
-        <label>E-mail<input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="seu@email.com"></label>
-        <label>Senha<input name="password" type="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="********"></label>
-        <button class="primary" type="submit">${isSetup ? 'Criar e entrar' : 'Entrar'}</button>
-      </form>
+        ${authHeroMarkup()}
+      </div>
+      <div class="auth-side">
+        <form class="auth-panel form" id="authForm">
+          <span class="auth-badge">${icon('shield', 14)} Acesso administrativo</span>
+          <div class="auth-heading">
+            <h1>${isSetup ? 'Criar administrador' : 'Entrar no painel'}</h1>
+            <p class="muted">${isSetup ? 'Configure o primeiro acesso do painel.' : 'Acesse o dashboard do SuperVISOR.'}</p>
+          </div>
+          ${isSetup ? '<label>Nome<input name="name" required minlength="2" autocomplete="name"></label>' : ''}
+          <label>E-mail<input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="seu@email.com"></label>
+          <label>Senha<input name="password" type="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="Sua senha"></label>
+          <button class="primary auth-submit" type="submit">${isSetup ? 'Criar e entrar' : 'Entrar'}</button>
+          <p class="auth-foot">Versão ${APP_VERSION} · <button class="link-button" id="changelogButton" type="button">Novidades</button></p>
+        </form>
+      </div>
     </section>
   `;
 
@@ -427,61 +536,130 @@ function renderAuth() {
   });
 }
 
+function navSections() {
+  return [
+    {
+      label: 'Operação',
+      items: [
+        { tab: 'schedules', label: 'Agendamentos', icon: 'calendar' },
+        { tab: 'conversations', label: 'Conversas', icon: 'chat' },
+        { tab: 'contacts', label: 'Contatos', icon: 'users' },
+        { tab: 'whatsapp', label: 'Conexão WhatsApp', icon: 'qr' }
+      ]
+    },
+    {
+      label: 'Análise',
+      items: [
+        { tab: 'stats', label: 'Estatísticas', icon: 'chart' },
+        { tab: 'logs', label: 'Histórico de envios', icon: 'history' }
+      ]
+    },
+    {
+      label: 'Gestão',
+      items: [
+        ...(state.user?.isOwner ? [{ tab: 'integrations', label: 'Integrações', icon: 'plug' }] : []),
+        { tab: 'users', label: 'Administradores', icon: 'shield' }
+      ]
+    }
+  ];
+}
+
+function themeSwitchMarkup() {
+  return `
+    <div class="theme-switch" role="group" aria-label="Tema">
+      <button class="${state.theme === 'dark' ? 'active' : ''}" data-theme="dark" type="button">${icon('moon', 15)}<span>Escuro</span></button>
+      <button class="${state.theme === 'light' ? 'active' : ''}" data-theme="light" type="button">${icon('sun', 15)}<span>Claro</span></button>
+    </div>
+  `;
+}
+
 function renderShell() {
+  const sections = navSections();
+  const primaryMobile = ['schedules', 'conversations', 'contacts', 'stats'];
+  const allItems = sections.flatMap((section) => section.items);
   app.innerHTML = `
     <section class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
-          ${logoMarkup()}
-          <span>Gestor de Equipes</span>
+        ${brandMarkup()}
+        <div class="wa-card" id="sidebarWaCard">
+          <span class="wa-dot" id="sidebarWaDot"></span>
+          <div class="wa-card-copy">
+            <strong id="liveStatus" class="${statusClass()}">${whatsappStatusText()}</strong>
+            <span id="sidebarWaNumber">${escapeHtml(sidebarWhatsAppDetail())}</span>
+          </div>
         </div>
-        <div class="theme-switch" aria-label="Alternar tema">
-          <button class="${state.theme === 'dark' ? 'active' : ''}" data-theme="dark" type="button">dark</button>
-          <button class="${state.theme === 'light' ? 'active' : ''}" data-theme="light" type="button">light</button>
-        </div>
-        <nav class="nav">
-          ${navButton('schedules', 'Agendamentos')}
-          ${navButton('whatsapp', 'WhatsApp')}
-          ${navButton('contacts', 'Contatos')}
-          ${navButton('conversations', 'Conversas')}
-          ${navButton('stats', 'Estatísticas')}
-          ${state.user?.isOwner ? navButton('integrations', 'Integrações') : ''}
-          ${navButton('users', 'Administradores')}
-          ${navButton('logs', 'Histórico')}
+        <nav class="nav" aria-label="Principal">
+          ${sections.map((section) => `
+            <span class="nav-section">${section.label}</span>
+            ${section.items.map((item) => navButton(item.tab, item.label, item.icon)).join('')}
+          `).join('')}
         </nav>
+        <div class="sidebar-footer">
+          ${themeSwitchMarkup()}
+          <button class="link-button sidebar-version" data-open-changelog type="button">Versão ${APP_VERSION} · Novidades</button>
+        </div>
       </aside>
       <section class="main">
-        <div class="live-strip">
-          <span class="live-dot">AO VIVO</span>
-          <span id="liveClock"></span>
-          <span id="liveStatus" class="${statusClass()}">${whatsappStatusText()}</span>
+        <header class="live-strip">
+          <span class="live-dot">Ao vivo · <span id="liveClock"></span></span>
           <div class="header-actions">
-            <button class="link-button" id="changelogButton" type="button">Changelog v1.2</button>
+            <button class="link-button header-changelog" id="changelogButton" type="button">Novidades v${APP_VERSION}</button>
             <div class="account">
-              <button class="account-button" id="accountButton" type="button">
+              <button class="account-button" id="accountButton" type="button" aria-haspopup="true">
                 ${avatarMarkup(state.user)}
                 <span>${escapeHtml(state.user.name)}</span>
+                ${icon('down', 15)}
               </button>
               <div class="account-menu" id="accountMenu" hidden>
                 <form class="form account-form" id="accountForm">
+                  <strong class="account-menu-title">Minha conta</strong>
                   <label>Avatar<input name="avatar" type="file" accept="image/*"></label>
                   <label>Nome<input name="name" value="${escapeHtml(state.user.name)}" required></label>
                   <label>E-mail<input name="email" type="email" value="${escapeHtml(state.user.email)}" required></label>
                   <label>Nova senha<input name="password" type="password" minlength="6" placeholder="Deixe vazio para manter"></label>
                   <button class="primary" type="submit">Salvar conta</button>
                 </form>
-                <button class="danger full-button" id="logoutButton" type="button">Sair</button>
+                <button class="danger full-button" id="logoutButton" type="button">${icon('logout', 16)} Sair</button>
               </div>
             </div>
           </div>
-        </div>
+        </header>
         <div id="mainContent"></div>
       </section>
+      <nav class="mobile-tabbar" aria-label="Navegação">
+        ${allItems.filter((item) => primaryMobile.includes(item.tab)).map((item) => mobileTabButton(item)).join('')}
+        <button class="mobile-tab" id="mobileMoreButton" type="button" aria-expanded="false">${icon('more', 22)}<span>Mais</span></button>
+      </nav>
+      <div class="mobile-more" id="mobileMore" hidden>
+        <div class="mobile-more-panel">
+          ${allItems.filter((item) => !primaryMobile.includes(item.tab)).map((item) => `
+            <button class="mobile-more-item" data-tab="${item.tab}" type="button">${icon(item.icon, 20)}<span>${item.label}</span></button>
+          `).join('')}
+          ${themeSwitchMarkup()}
+          <button class="link-button" data-open-changelog type="button">Versão ${APP_VERSION} · Novidades</button>
+        </div>
+      </div>
     </section>
   `;
 
   bindShell();
   updateLiveClock();
+  updateLiveStatus();
+}
+
+function mobileTabButton(item) {
+  const short = { schedules: 'Agenda', conversations: 'Conversas', contacts: 'Contatos', stats: 'Estatísticas' }[item.tab] || item.label;
+  return `<button class="mobile-tab" data-tab="${item.tab}" type="button">${icon(item.icon, 22)}<span>${short}</span></button>`;
+}
+
+function sidebarWhatsAppDetail() {
+  if (state.whatsapp.status === 'ready') {
+    return state.whatsapp.connectedNumber ? formatPhone(state.whatsapp.connectedNumber) : `${state.whatsapp.groups?.length || 0} grupo(s) disponíveis`;
+  }
+  if (state.whatsapp.status === 'qr') return 'Leia o QR Code para conectar';
+  if (state.whatsapp.status === 'authenticated') return 'Sincronizando conversas';
+  if (state.whatsapp.status === 'loading') return 'Iniciando o navegador';
+  return 'Abra Conexão WhatsApp';
 }
 
 function renderContent() {
@@ -677,16 +855,30 @@ async function pollConversations() {
   }
 }
 
-function navButton(tab, label) {
+function navButton(tab, label, iconName = 'calendar') {
   const badge = tab === 'conversations' && state.pendingConversationAlerts
     ? `<span class="nav-badge">${state.pendingConversationAlerts}</span>`
     : '';
-  return `<button class="${state.tab === tab ? 'active' : ''}" data-tab="${tab}"><span>${label}</span>${badge}</button>`;
+  return `<button class="${state.tab === tab ? 'active' : ''}" data-tab="${tab}" type="button">${icon(iconName)}<span class="nav-label">${label}</span><span class="nav-count" data-nav-count="${tab}"></span>${badge}</button>`;
+}
+
+function navCountFor(tab) {
+  if (tab === 'schedules') {
+    const active = state.schedules.filter((schedule) => schedule.active).length;
+    return active ? { text: String(active), tone: '' } : null;
+  }
+  if (tab === 'logs') {
+    const failures = todaysLogs().filter((log) => log.status === 'failed').length;
+    return failures ? { text: String(failures), tone: 'is-danger' } : null;
+  }
+  return null;
 }
 
 function updateNav() {
   document.querySelectorAll('[data-tab]').forEach((button) => {
     button.classList.toggle('active', button.dataset.tab === state.tab);
+    if (button.dataset.tab === state.tab) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
     const existingBadge = button.querySelector('.nav-badge');
     if (existingBadge) existingBadge.remove();
     if (button.dataset.tab === 'conversations' && state.pendingConversationAlerts > 0) {
@@ -696,6 +888,24 @@ function updateNav() {
       button.classList.remove('has-alerts');
     }
   });
+  document.querySelectorAll('[data-nav-count]').forEach((element) => {
+    const count = navCountFor(element.dataset.navCount);
+    element.textContent = count?.text || '';
+    element.className = `nav-count ${count?.tone || ''}`;
+  });
+  const moreButton = document.querySelector('#mobileMoreButton');
+  if (moreButton) {
+    const inMore = !['schedules', 'conversations', 'contacts', 'stats'].includes(state.tab);
+    moreButton.classList.toggle('active', inMore);
+  }
+}
+
+function setMobileMore(open) {
+  const sheet = document.querySelector('#mobileMore');
+  const button = document.querySelector('#mobileMoreButton');
+  if (!sheet) return;
+  sheet.hidden = !open;
+  button?.setAttribute('aria-expanded', String(open));
 }
 
 function avatarMarkup(user) {
@@ -709,9 +919,11 @@ function avatarMarkup(user) {
 function bindShell() {
   document.querySelectorAll('[data-tab]').forEach((button) => {
     button.addEventListener('click', () => {
+      setMobileMore(false);
       if (state.tab === button.dataset.tab) return;
       state.tab = button.dataset.tab;
       state.editingId = null;
+      window.scrollTo({ top: 0 });
       if (state.tab === 'conversations') {
         state.pendingConversationAlerts = 0;
         renderContentQueued();
@@ -743,7 +955,33 @@ function bindShell() {
     menu.hidden = !menu.hidden;
   });
 
+  document.querySelector('#mobileMoreButton')?.addEventListener('click', () => {
+    setMobileMore(document.querySelector('#mobileMore')?.hidden ?? false);
+  });
+  document.querySelector('#mobileMore')?.addEventListener('click', (event) => {
+    if (event.target.id === 'mobileMore') setMobileMore(false);
+  });
+  if (!document.body.dataset.shellListeners) {
+    document.body.dataset.shellListeners = 'true';
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setMobileMore(false);
+      const menu = document.querySelector('#accountMenu');
+      if (menu) menu.hidden = true;
+    });
+    document.addEventListener('click', (event) => {
+      const menu = document.querySelector('#accountMenu');
+      if (menu && !menu.hidden && !event.target.closest('.account')) menu.hidden = true;
+    });
+  }
+
   document.querySelector('#changelogButton')?.addEventListener('click', showChangelog);
+  document.querySelectorAll('[data-open-changelog]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setMobileMore(false);
+      showChangelog();
+    });
+  });
   document.querySelector('#logoutButton')?.addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' });
     state.user = null;
@@ -773,7 +1011,7 @@ async function saveAccount(event) {
   try {
     const result = await api('/api/me', { method: 'PUT', body: JSON.stringify(body) });
     state.user = result.user;
-    document.querySelector('.account-button').innerHTML = `${avatarMarkup(state.user)}<span>${escapeHtml(state.user.name)}</span>`;
+    document.querySelector('.account-button').innerHTML = `${avatarMarkup(state.user)}<span>${escapeHtml(state.user.name)}</span>${icon('down', 15)}`;
     toast('Conta atualizada.');
   } catch (error) {
     toast(error.message);
@@ -794,11 +1032,21 @@ function updateLiveClock() {
   if (clock) clock.textContent = new Date().toLocaleTimeString('pt-BR');
 }
 
+function whatsappTone() {
+  if (state.whatsapp.status === 'ready') return 'ok';
+  if (state.whatsapp.status === 'disconnected' || state.whatsapp.status === 'error') return 'danger';
+  return 'warn';
+}
+
 function updateLiveStatus() {
   const status = document.querySelector('#liveStatus');
   if (!status) return;
   status.textContent = whatsappStatusText();
   status.className = statusClass();
+  const card = document.querySelector('#sidebarWaCard');
+  if (card) card.dataset.tone = whatsappTone();
+  const detail = document.querySelector('#sidebarWaNumber');
+  if (detail) detail.textContent = sidebarWhatsAppDetail();
 }
 
 async function loadIntegrations({ silent = false } = {}) {
@@ -1032,7 +1280,8 @@ function whatsappStatusText() {
 }
 
 function statusClass() {
-  return `status ${state.whatsapp.status === 'disconnected' || state.whatsapp.status === 'error' ? 'status-danger' : ''}`;
+  if (state.whatsapp.status === 'disconnected' || state.whatsapp.status === 'error') return 'status status-danger';
+  return state.whatsapp.status === 'ready' ? 'status' : 'status status-partial';
 }
 
 function whatsappIsReady() {
@@ -1050,41 +1299,68 @@ function formatPhone(value) {
   return value || 'Não identificado';
 }
 
-function whatsappTab() {
-  const statusText = whatsappStatusText();
+function pageHeader(title, subtitle, actions = '') {
   return `
     <div class="topbar">
-      <div>
-        <h1>WhatsApp</h1>
-        <p class="muted">Conecte o número do bot e atualize a lista de grupos.</p>
+      <div class="topbar-copy">
+        <h1>${title}</h1>
+        ${subtitle ? `<p class="muted">${subtitle}</p>` : ''}
       </div>
-      <span class="${statusClass()}">${statusText}</span>
+      ${actions ? `<div class="topbar-actions">${actions}</div>` : ''}
     </div>
-    <div class="grid">
-      <section class="panel">
-        <h2>QR Code</h2>
-        ${state.whatsapp.connectedNumber ? `<div class="connected-number-card"><span class="connected-dot"></span><div><small>Número conectado</small><strong>${escapeHtml(formatPhone(state.whatsapp.connectedNumber))}</strong></div></div>` : ''}
-        ${state.whatsapp.error ? `<p class="muted"><strong>Erro técnico:</strong> ${escapeHtml(state.whatsapp.error)}</p>` : ''}
-        ${state.whatsapp.status === 'authenticated' ? '<p class="muted"><strong>Aguardando:</strong> o QR Code foi aceito, mas o WhatsApp Web ainda está sincronizando. Os grupos só aparecem quando mudar para Conectado.</p>' : ''}
-        <div class="qr">
+  `;
+}
+
+function emptyState(message, iconName = 'calendar', extra = '') {
+  return `<div class="empty"><span class="empty-icon">${icon(iconName, 22)}</span><span class="empty-text">${message}</span>${extra}</div>`;
+}
+
+function whatsappTab() {
+  const statusText = whatsappStatusText();
+  const ready = whatsappIsReady();
+  const tone = whatsappTone();
+  return `
+    ${pageHeader('Conexão WhatsApp', 'Conecte o número do bot e mantenha a lista de grupos atualizada.', `<span class="${statusClass()}">${statusText}</span>`)}
+    <div class="wa-layout">
+      <section class="panel wa-connect" data-tone="${tone}">
+        <div class="wa-qr-frame ${state.whatsapp.qrCodeDataUrl ? 'has-qr' : ''}">
           ${
             state.whatsapp.qrCodeDataUrl
               ? `<img src="${state.whatsapp.qrCodeDataUrl}" alt="QR Code do WhatsApp">`
-              : `<p class="muted">${state.whatsapp.status === 'ready' ? 'WhatsApp conectado neste computador.' : 'Quando o WhatsApp pedir autenticação, o QR Code aparece aqui.'}</p>`
+              : `<span class="wa-qr-placeholder">${icon(ready ? 'check' : 'qr', 40)}</span>`
           }
         </div>
-        <div class="row" style="margin-top:14px">
-          <button class="danger" id="disconnectWhatsApp" ${state.whatsapp.status === 'disconnected' ? 'disabled' : ''}>Desconectar</button>
-          <button class="secondary" id="restartWhatsApp">Reiniciar conexão</button>
-          <button class="secondary" id="newQrWhatsApp">Gerar novo QR</button>
+        <div class="wa-connect-copy">
+          <span class="wa-state"><span class="wa-dot"></span>${statusText}</span>
+          ${ready
+            ? `<h2>WhatsApp conectado</h2>
+               ${state.whatsapp.connectedNumber ? `<p class="wa-number">${escapeHtml(formatPhone(state.whatsapp.connectedNumber))}</p>` : ''}
+               <p class="muted">Os agendamentos serão enviados por este número. A sessão fica salva neste servidor.</p>`
+            : `<h2>${state.whatsapp.qrCodeDataUrl ? 'Escaneie com o WhatsApp' : 'Aguardando o QR Code'}</h2>
+               <ol class="wa-steps">
+                 <li>Abra o WhatsApp no celular que vai enviar as mensagens</li>
+                 <li>Toque em <strong>Mais opções › Aparelhos conectados</strong></li>
+                 <li>Toque em <strong>Conectar um aparelho</strong> e aponte para o código</li>
+               </ol>`}
+          ${state.whatsapp.status === 'authenticated' ? '<p class="notice notice-warn">O QR Code foi aceito, mas o WhatsApp Web ainda está sincronizando. Os grupos aparecem quando o status mudar para Conectado.</p>' : ''}
+          ${state.whatsapp.error ? `<p class="notice notice-danger"><strong>Erro técnico:</strong> ${escapeHtml(state.whatsapp.error)}</p>` : ''}
+          <div class="row wa-actions">
+            <button class="secondary" id="restartWhatsApp" type="button">${icon('refresh', 16)} Reiniciar conexão</button>
+            <button class="secondary" id="newQrWhatsApp" type="button">${icon('qr', 16)} Gerar novo QR</button>
+            <button class="danger" id="disconnectWhatsApp" type="button" ${state.whatsapp.status === 'disconnected' ? 'disabled' : ''}>Desconectar</button>
+          </div>
+          <p class="fine-print">Use apenas com autorização da empresa e respeitando as regras do WhatsApp.</p>
         </div>
       </section>
       <section class="panel whatsapp-groups-panel">
         <div class="row panel-head whatsapp-groups-head">
-          <h2 style="margin-right:auto">Grupos</h2>
-          <button class="secondary refresh-groups-button" id="refreshGroups" ${whatsappIsReady() ? '' : 'disabled'}>Atualizar</button>
+          <div>
+            <h2>Grupos</h2>
+            <p class="muted">${state.whatsapp.groups.length} grupo(s) disponíveis para agendamentos.</p>
+          </div>
+          <button class="secondary refresh-groups-button" id="refreshGroups" type="button" ${ready ? '' : 'disabled'}>${icon('refresh', 16)} Atualizar</button>
         </div>
-        ${state.actionMessage ? `<p class="muted">${escapeHtml(state.actionMessage)}</p>` : ''}
+        ${state.actionMessage ? `<p class="notice">${escapeHtml(state.actionMessage)}</p>` : ''}
         ${groupsList(false)}
       </section>
     </div>
@@ -1094,7 +1370,8 @@ function whatsappTab() {
 function schedulesTab() {
   const editing = state.schedules.find((item) => item.id === state.editingId);
   const draft = state.scheduleDraft;
-  const formSource = editing || draft;
+  const editDraft = editing && state.scheduleEditDraft?.id === editing.id ? state.scheduleEditDraft : null;
+  const formSource = editing ? { ...editing, ...(editDraft || {}) } : draft;
   const schedules = filteredSchedules();
   const dateScope = editing?.id || 'new';
   if (state.selectedDatesScheduleId !== dateScope) {
@@ -1102,72 +1379,64 @@ function schedulesTab() {
     state.selectedDatesScheduleId = dateScope;
   }
   const selectedDates = getSelectedDates(formSource);
+  const mode = formSource?.scheduleMode || 'weekly';
+  const kpis = scheduleKpis();
+  const nextId = kpis.next?.schedule.id || null;
+  const today = new Date();
+  const timeline = schedules
+    .filter((schedule) => state.scheduleView !== 'today' || scheduleRunsOn(schedule, today))
+    .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+  const advancedFilters = state.scheduleFilterType !== 'all' || state.scheduleFilterDay !== 'all' || Boolean(state.scheduleFilterDate);
+  const statusCounts = {
+    all: filteredSchedules({ ignoreStatus: true }).length,
+    active: filteredSchedules({ ignoreStatus: true }).filter((item) => item.active).length,
+    paused: filteredSchedules({ ignoreStatus: true }).filter((item) => !item.active).length
+  };
   return `
-    <div class="topbar">
-      <div>
-        <h1>Agendamentos</h1>
-        <p class="muted">Crie mensagens recorrentes para grupos específicos.</p>
-      </div>
-      <span class="${statusClass()}">${whatsappStatusText()}</span>
-    </div>
-    <div class="grid">
-      <section class="panel">
-        <h2>${editing ? 'Editar mensagem' : 'Nova mensagem'}</h2>
-        <form class="form" id="scheduleForm">
-          <label>Título<input name="title" required minlength="2" value="${escapeHtml(formSource?.title || '')}"></label>
-          <label>Nome do bot<input name="botName" minlength="2" placeholder="SuperVISOR" value="${escapeHtml(formSource?.botName || '')}"></label>
-          <label>Mensagem<textarea name="message" required>${escapeHtml(formSource?.message || '')}</textarea></label>
-          <div class="split">
-            <label>Horário<input name="time" type="time" required value="${formSource?.time || '08:00'}"></label>
-            <label>Status
-              <select name="active">
-                <option value="true" ${formSource?.active !== false ? 'selected' : ''}>Ativo</option>
-                <option value="false" ${formSource?.active === false ? 'selected' : ''}>Pausado</option>
-              </select>
-            </label>
-          </div>
-          <label>Tipo de agendamento
-            <select name="scheduleMode">
-              <option value="weekly" ${(formSource?.scheduleMode || 'weekly') === 'weekly' ? 'selected' : ''}>Dias da semana</option>
-              <option value="dates" ${formSource?.scheduleMode === 'dates' ? 'selected' : ''}>Datas específicas</option>
-            </select>
-          </label>
-          <label>Dias da semana</label>
-          <div class="days">${Object.entries(dayLabels).map(([key, label]) => dayCheckbox(key, label, formSource)).join('')}</div>
-          <label>Datas específicas</label>
-          <div class="date-picker-row">
-            <input id="specificDatePicker" type="date">
-            <button class="secondary" id="addSpecificDate" type="button">Adicionar</button>
-          </div>
-          <input type="hidden" name="specificDates" value="${escapeHtml(selectedDates.join(','))}">
-          <div class="date-chip-list">
-            ${selectedDates.length ? selectedDates.map((date) => `<button class="date-chip" type="button" data-remove-date="${date}">${formatDate(date)} ×</button>`).join('') : '<span class="muted">Nenhuma data selecionada.</span>'}
-          </div>
-          <label>Grupos</label>
-          <label class="search-field schedule-search">
-            <span>⌕</span>
-            <input id="scheduleGroupSearch" placeholder="Buscar grupo pelo nome" value="${escapeHtml(state.scheduleGroupSearch)}">
-          </label>
-          ${groupsList(true, formSource)}
-          <label>Contatos individuais</label>
-          <label class="search-field schedule-search">
-            <span>⌕</span>
-            <input id="scheduleContactSearch" placeholder="Buscar contato por nome, número ou tag" value="${escapeHtml(state.scheduleContactSearch)}">
-          </label>
-          ${contactsList(true, formSource)}
-          <div class="row">
-            <button class="primary" type="submit">${editing ? 'Salvar alterações' : 'Criar agendamento'}</button>
-            ${editing || draft ? '<button class="secondary" type="button" id="cancelEdit">Cancelar</button>' : ''}
-          </div>
-        </form>
-      </section>
-      <section class="list">
-        <section class="panel schedule-filter">
+    ${pageHeader('Agendamentos', 'Mensagens recorrentes para grupos e contatos.', `<a class="primary topbar-cta" href="#scheduleForm">${icon('plus', 16)} Novo agendamento</a>`)}
+    ${onboardingCard()}
+    <section class="kpi-grid" aria-label="Resumo">
+      <article class="kpi">
+        <span class="kpi-label">Próximo envio</span>
+        <strong class="kpi-value ${kpis.next ? 'is-info' : ''}">${kpis.next ? escapeHtml(kpis.next.schedule.time) : '--:--'}</strong>
+        <span class="kpi-sub">${kpis.next ? `${escapeHtml(kpis.next.schedule.title)} · ${escapeHtml(relativeRunLabel(kpis.next.date))}` : 'Nenhum envio ativo programado'}</span>
+      </article>
+      <article class="kpi">
+        <span class="kpi-label">Agendamentos ativos</span>
+        <strong class="kpi-value">${kpis.active}</strong>
+        <span class="kpi-sub">${kpis.paused ? `${kpis.paused} pausado(s)` : 'Nenhum pausado'}</span>
+      </article>
+      <article class="kpi">
+        <span class="kpi-label">Envios hoje</span>
+        <strong class="kpi-value">${kpis.sentToday}</strong>
+        <span class="kpi-sub ${kpis.failedToday ? 'is-danger' : ''}">${kpis.failedToday ? `${kpis.failedToday} falha(s) · veja o histórico` : 'Nenhuma falha hoje'}</span>
+      </article>
+      <article class="kpi">
+        <span class="kpi-label">Sucesso nos últimos 7 dias</span>
+        <strong class="kpi-value">${kpis.rate === null ? '—' : `${kpis.rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}</strong>
+        ${kpis.rate === null ? '<span class="kpi-sub">Sem envios no período</span>' : `<span class="meter" aria-hidden="true"><span style="width:${kpis.rate}%"></span></span>`}
+      </article>
+    </section>
+    <div class="schedules-layout">
+      <section class="panel timeline-panel" aria-label="Agendamentos criados">
+        <div class="timeline-head">
           <div>
-            <h2>Agendamentos criados</h2>
-            <p class="muted">${schedules.length} de ${state.schedules.length} agendamento(s)</p>
+            <h2>${state.scheduleView === 'today' ? `Hoje, ${escapeHtml(today.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' }))}` : 'Todos os agendamentos'}</h2>
+            <p class="muted">${timeline.length} de ${state.schedules.length} agendamento(s)</p>
           </div>
-          <div class="split">
+          <div class="seg" role="group" aria-label="Visualização">
+            <button class="${state.scheduleView === 'today' ? 'active' : ''}" data-schedule-view="today" type="button">Hoje</button>
+            <button class="${state.scheduleView !== 'today' ? 'active' : ''}" data-schedule-view="all" type="button">Todos</button>
+          </div>
+        </div>
+        <div class="filter-chips" role="group" aria-label="Status">
+          <button class="filter-chip ${state.scheduleStatusFilter === 'all' ? 'active' : ''}" data-schedule-status="all" type="button">Todos · ${statusCounts.all}</button>
+          <button class="filter-chip ${state.scheduleStatusFilter === 'active' ? 'active' : ''}" data-schedule-status="active" type="button">Ativos · ${statusCounts.active}</button>
+          <button class="filter-chip ${state.scheduleStatusFilter === 'paused' ? 'active' : ''}" data-schedule-status="paused" type="button">Pausados · ${statusCounts.paused}</button>
+        </div>
+        <details class="filters-details schedule-filter" ${advancedFilters ? 'open' : ''}>
+          <summary>${icon('filter', 15)} Filtrar por destino ou data${advancedFilters ? ' <span class="dot-indicator"></span>' : ''}</summary>
+          <div class="filters-grid">
             <label>Filtrar por
               <select id="scheduleFilterType">
                 <option value="all" ${state.scheduleFilterType === 'all' ? 'selected' : ''}>Todos os destinos</option>
@@ -1181,8 +1450,6 @@ function schedulesTab() {
                 ${scheduleFilterOptions()}
               </select>
             </label>
-          </div>
-          <div class="split">
             <label>Dia da semana
               <select id="scheduleFilterDay">
                 <option value="all" ${state.scheduleFilterDay === 'all' ? 'selected' : ''}>Todos os dias</option>
@@ -1193,10 +1460,227 @@ function schedulesTab() {
               <input id="scheduleFilterDate" type="date" value="${escapeHtml(state.scheduleFilterDate)}">
             </label>
           </div>
-        </section>
-        ${schedules.length ? schedules.map(scheduleItem).join('') : '<div class="empty">Nenhum agendamento encontrado para este filtro.</div>'}
+        </details>
+        <div class="timeline">
+          ${timeline.length
+            ? timeline.map((schedule) => scheduleItem(schedule, nextId)).join('')
+            : emptyState(
+              state.schedules.length
+                ? (state.scheduleView === 'today' ? 'Nenhum agendamento para hoje com estes filtros.' : 'Nenhum agendamento encontrado para este filtro.')
+                : 'Nenhum agendamento ainda. Crie o primeiro em Novo agendamento.',
+              'calendar',
+              state.scheduleView === 'today' && state.schedules.length ? '<button class="secondary" data-schedule-view="all" type="button">Ver todos</button>' : ''
+            )}
+        </div>
+      </section>
+
+      <section class="panel composer ${editing ? 'is-editing' : ''}" aria-label="${editing ? 'Editar agendamento' : 'Novo agendamento'}">
+        <div class="composer-head">
+          <h2>${editing ? 'Editar agendamento' : draft?.isCopy ? 'Novo agendamento (cópia)' : 'Novo agendamento'}</h2>
+          ${editing ? '<span class="badge badge-info">Editando</span>' : ''}
+        </div>
+        <form class="form" id="scheduleForm" data-mode="${mode}">
+          <fieldset class="composer-step">
+            <legend><span class="step-num">1</span> Mensagem</legend>
+            <label>Título interno<input name="title" required minlength="2" placeholder="Ex.: Bom dia, equipe" value="${escapeHtml(formSource?.title || '')}"></label>
+            <label>Mensagem
+              <textarea name="message" required rows="4" placeholder="Escreva a mensagem que será enviada">${escapeHtml(formSource?.message || '')}</textarea>
+            </label>
+            <div class="format-tools" role="group" aria-label="Formatação do WhatsApp">
+              <span>Formatar:</span>
+              <button class="tool-button" type="button" data-wrap="*" aria-label="Negrito" title="Negrito">${icon('bold', 16)}</button>
+              <button class="tool-button" type="button" data-wrap="_" aria-label="Itálico" title="Itálico">${icon('italic', 16)}</button>
+              <button class="tool-button" type="button" data-wrap="~" aria-label="Riscado" title="Riscado">${icon('strike', 16)}</button>
+            </div>
+            <label><span>Nome do bot <span class="label-hint">· opcional</span></span><input name="botName" minlength="2" placeholder="SuperVISOR" value="${escapeHtml(formSource?.botName || '')}"></label>
+          </fieldset>
+
+          <fieldset class="composer-step">
+            <legend><span class="step-num">2</span> Quando</legend>
+            <div class="split">
+              <label>Horário<input name="time" type="time" required value="${formSource?.time || '08:00'}"></label>
+              <label>Status
+                <select name="active">
+                  <option value="true" ${formSource?.active !== false ? 'selected' : ''}>Ativo</option>
+                  <option value="false" ${formSource?.active === false ? 'selected' : ''}>Pausado</option>
+                </select>
+              </label>
+            </div>
+            <div class="seg seg-full" role="radiogroup" aria-label="Repetir">
+              <label class="${mode === 'weekly' ? 'active' : ''}"><input type="radio" name="scheduleMode" value="weekly" ${mode === 'weekly' ? 'checked' : ''}><span>Dias da semana</span></label>
+              <label class="${mode === 'dates' ? 'active' : ''}"><input type="radio" name="scheduleMode" value="dates" ${mode === 'dates' ? 'checked' : ''}><span>Datas específicas</span></label>
+            </div>
+            <div class="when-weekly">
+              <div class="day-pills" role="group" aria-label="Dias da semana">${Object.entries(dayLabels).map(([key, label]) => dayCheckbox(key, label, formSource)).join('')}</div>
+            </div>
+            <div class="when-dates">
+              <div class="date-picker-row">
+                <input id="specificDatePicker" type="date" aria-label="Escolher data">
+                <button class="secondary" id="addSpecificDate" type="button">${icon('plus', 16)} Adicionar</button>
+              </div>
+              <input type="hidden" name="specificDates" value="${escapeHtml(selectedDates.join(','))}">
+              <div class="date-chip-list">${selectedDatesMarkup(selectedDates)}</div>
+            </div>
+          </fieldset>
+
+          <fieldset class="composer-step">
+            <legend><span class="step-num">3</span> Para quem</legend>
+            <p class="target-summary" id="scheduleTargetSummary"></p>
+            <span class="field-label">Grupos</span>
+            <label class="search-field schedule-search">
+              <span>${icon('search', 16)}</span>
+              <input id="scheduleGroupSearch" placeholder="Buscar grupo pelo nome" aria-label="Buscar grupo" value="${escapeHtml(state.scheduleGroupSearch)}">
+            </label>
+            ${groupsList(true, formSource)}
+            <span class="field-label">Contatos individuais</span>
+            <label class="search-field schedule-search">
+              <span>${icon('search', 16)}</span>
+              <input id="scheduleContactSearch" placeholder="Buscar por nome, número ou tag" aria-label="Buscar contato" value="${escapeHtml(state.scheduleContactSearch)}">
+            </label>
+            ${contactsList(true, formSource)}
+          </fieldset>
+
+          <div class="wa-preview" aria-live="polite">
+            <span class="wa-preview-label">Prévia no WhatsApp</span>
+            <div class="wa-bubble" id="schedulePreview"></div>
+          </div>
+
+          <div class="composer-actions">
+            ${editing || draft ? '<button class="secondary" type="button" id="cancelEdit">Cancelar</button>' : ''}
+            <button class="primary" type="submit">${icon(editing ? 'check' : 'calendar', 16)} ${editing ? 'Salvar alterações' : 'Criar agendamento'}</button>
+          </div>
+        </form>
       </section>
     </div>
+  `;
+}
+
+function selectedDatesMarkup(selectedDates) {
+  return selectedDates.length
+    ? selectedDates.map((date) => `<button class="date-chip" type="button" data-remove-date="${date}" aria-label="Remover ${formatDate(date)}">${formatDate(date)} <span aria-hidden="true">×</span></button>`).join('')
+    : '<span class="muted">Nenhuma data selecionada.</span>';
+}
+
+function localDateKey(date = new Date()) {
+  return date.toLocaleDateString('en-CA');
+}
+
+function todaysLogs() {
+  const key = localDateKey();
+  return (state.logs || []).filter((log) => log.createdAt && localDateKey(new Date(log.createdAt)) === key);
+}
+
+function scheduleRunsOn(schedule, date) {
+  if ((schedule.scheduleMode || 'weekly') === 'dates') {
+    return (schedule.specificDates || []).includes(localDateKey(date));
+  }
+  return (schedule.days || []).includes(dayKeysByIndex[date.getDay()]);
+}
+
+function scheduleDateAt(schedule, date) {
+  const [hours, minutes] = String(schedule.time || '00:00').split(':').map(Number);
+  const result = new Date(date);
+  result.setHours(hours || 0, minutes || 0, 0, 0);
+  return result;
+}
+
+function nextRunFor(schedule, from = new Date()) {
+  if (!schedule.active) return null;
+  for (let offset = 0; offset < 400; offset += 1) {
+    const day = new Date(from);
+    day.setDate(day.getDate() + offset);
+    if (!scheduleRunsOn(schedule, day)) continue;
+    const at = scheduleDateAt(schedule, day);
+    if (at > from) return at;
+  }
+  return null;
+}
+
+function relativeRunLabel(date) {
+  const now = new Date();
+  const dayDiff = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);
+  const minutes = Math.round((date - now) / 60000);
+  if (dayDiff === 0) {
+    if (minutes < 60) return `em ${Math.max(1, minutes)} min`;
+    return `em ${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`;
+  }
+  if (dayDiff === 1) return 'amanhã';
+  if (dayDiff < 7) return date.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return date.toLocaleDateString('pt-BR');
+}
+
+function scheduleKpis() {
+  const now = new Date();
+  let next = null;
+  state.schedules.forEach((schedule) => {
+    const date = nextRunFor(schedule, now);
+    if (date && (!next || date < next.date)) next = { schedule, date };
+  });
+  const logsToday = todaysLogs();
+  const weekAgo = Date.now() - 7 * 86400000;
+  const weekLogs = (state.logs || []).filter((log) => Date.parse(log.createdAt) >= weekAgo);
+  const okWeek = weekLogs.filter((log) => log.status === 'sent').length;
+  return {
+    next,
+    active: state.schedules.filter((schedule) => schedule.active).length,
+    paused: state.schedules.filter((schedule) => !schedule.active).length,
+    sentToday: logsToday.filter((log) => log.status === 'sent' || log.status === 'partial').length,
+    failedToday: logsToday.filter((log) => log.status === 'failed').length,
+    rate: weekLogs.length ? (okWeek / weekLogs.length) * 100 : null
+  };
+}
+
+function scheduleTodayStatus(schedule, nextId) {
+  if (!schedule.active) return { tone: 'neutral', label: 'Pausado' };
+  const lastToday = todaysLogs().find((log) => log.scheduleId === schedule.id);
+  if (lastToday?.status === 'failed') return { tone: 'danger', label: 'Falhou hoje' };
+  if (lastToday?.status === 'partial') return { tone: 'warn', label: 'Envio parcial' };
+  if (lastToday?.status === 'sent') return { tone: 'success', label: 'Enviado hoje' };
+  if (schedule.id === nextId) return { tone: 'info', label: 'Próximo' };
+  const now = new Date();
+  if (scheduleRunsOn(schedule, now) && scheduleDateAt(schedule, now) > now) return { tone: 'neutral', label: 'Hoje' };
+  return { tone: 'success-soft', label: 'Ativo' };
+}
+
+function uiStoreGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function uiStoreSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* armazenamento indisponível */ }
+}
+
+function onboardingCard() {
+  if (uiStoreGet('onboardingDismissed') === 'true') return '';
+  const steps = [
+    { done: whatsappIsReady(), title: 'Conectar o WhatsApp', text: 'Leia o QR Code com o celular que vai enviar as mensagens.', tab: 'whatsapp', action: 'Conectar' },
+    { done: state.contacts.length > 0 || state.whatsapp.groups.length > 0, title: 'Revisar grupos e contatos', text: 'Os grupos aparecem sozinhos. Cadastre contatos individuais com tags.', tab: 'contacts', action: 'Abrir contatos' },
+    { done: state.schedules.length > 0, title: 'Criar o primeiro agendamento', text: 'Use o formulário desta página para programar o primeiro envio.', href: '#scheduleForm', action: 'Criar agora' }
+  ];
+  const doneCount = steps.filter((step) => step.done).length;
+  if (doneCount === steps.length) return '';
+  return `
+    <section class="panel onboarding" aria-label="Primeiros passos">
+      <div class="onboarding-head">
+        <div>
+          <h2>Vamos deixar tudo pronto em ${steps.length} passos</h2>
+          <p class="muted">${doneCount} de ${steps.length} concluídos. Você pode pular e voltar quando quiser.</p>
+        </div>
+        <button class="link-button" id="dismissOnboarding" type="button">Ocultar</button>
+      </div>
+      <span class="meter" aria-hidden="true"><span style="width:${Math.max(6, (doneCount / steps.length) * 100)}%"></span></span>
+      <ol class="onboarding-steps">
+        ${steps.map((step, index) => `
+          <li class="onboarding-step ${step.done ? 'is-done' : ''}">
+            <span class="step-num">${step.done ? icon('check', 15) : index + 1}</span>
+            <div><strong>${step.title}</strong><span>${step.text}</span></div>
+            ${step.done ? '<span class="badge badge-success">Feito</span>' : step.tab
+              ? `<button class="secondary btn-sm" data-goto-tab="${step.tab}" type="button">${step.action}</button>`
+              : `<a class="secondary btn-sm" href="${step.href}">${step.action}</a>`}
+          </li>
+        `).join('')}
+      </ol>
+    </section>
   `;
 }
 
@@ -1216,8 +1700,10 @@ function scheduleFilterOptions() {
   return '';
 }
 
-function filteredSchedules() {
+function filteredSchedules({ ignoreStatus = false } = {}) {
   return state.schedules.filter((schedule) => {
+    if (!ignoreStatus && state.scheduleStatusFilter === 'active' && !schedule.active) return false;
+    if (!ignoreStatus && state.scheduleStatusFilter === 'paused' && schedule.active) return false;
     const matchesDestination = (
       state.scheduleFilterType === 'all'
       || !state.scheduleFilterId
@@ -1244,12 +1730,7 @@ function getSelectedDates(editing) {
 function usersTab() {
   const canManageUsers = Boolean(state.user?.isOwner);
   return `
-    <div class="topbar">
-      <div>
-        <h1>Administradores</h1>
-        <p class="muted">Cadastre pessoas autorizadas a programar envios.</p>
-      </div>
-    </div>
+    ${pageHeader('Administradores', 'Pessoas autorizadas a programar envios.', `<span class="topbar-meta">${state.users.length} usuário(s)</span>`)}
     <div class="grid">
       <section class="panel">
         <h2>Novo administrador</h2>
@@ -1272,12 +1753,7 @@ function contactsTab() {
   const contacts = filteredContacts();
   const tags = [...new Set(state.contacts.flatMap(contactTags))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   return `
-    <div class="topbar">
-      <div>
-        <h1>Contatos</h1>
-        <p class="muted">Cadastre colaboradores para envios individuais e estatísticas.</p>
-      </div>
-    </div>
+    ${pageHeader('Contatos', 'Colaboradores para envios individuais e estatísticas.', `<span class="topbar-meta">${state.contacts.length} cadastrado(s) · ${tags.length} tag(s)</span>`)}
     <div class="contacts-layout">
       <section class="panel contact-editor">
         <h2>${editing ? 'Editar contato' : 'Novo contato'}</h2>
@@ -1295,8 +1771,8 @@ function contactsTab() {
       <section class="panel contact-directory">
         <div class="contact-toolbar">
           <label class="search-field">
-            <span>⌕</span>
-            <input id="contactSearch" value="${escapeHtml(state.contactSearch)}" placeholder="Buscar">
+            <span>${icon('search', 16)}</span>
+            <input id="contactSearch" value="${escapeHtml(state.contactSearch)}" placeholder="Buscar nome, telefone ou tag" aria-label="Buscar contato">
           </label>
           <select id="contactTagFilter">
             <option value="all">Todas as tags</option>
@@ -1316,7 +1792,7 @@ function contactsTab() {
           <strong>Ações</strong>
         </div>
         <div class="contacts-results">
-          ${contacts.length ? contacts.map(contactItem).join('') : '<div class="empty">Nenhum contato encontrado.</div>'}
+          ${contacts.length ? contacts.map(contactItem).join('') : emptyState(state.contacts.length ? 'Nenhum contato encontrado.' : 'Nenhum contato cadastrado ainda. Use o formulário ao lado.', 'users')}
         </div>
       </section>
     </div>
@@ -1366,9 +1842,9 @@ function contactItem(contact) {
       </div>
       <div class="contact-tags">${tags.length ? tags.map((tag) => `<span class="contact-tag">${escapeHtml(tag)}</span>`).join('') : '<span class="muted">Sem tag</span>'}</div>
       <div class="contact-actions">
-        <button class="icon-button" title="Conversar" data-start-contact-chat="${contact.whatsappId}" type="button">↗</button>
-        <button class="icon-button" title="Editar" data-edit-contact="${contact.id}" type="button">✎</button>
-        <button class="icon-button danger-icon" title="Apagar" data-delete-contact="${contact.id}" type="button">×</button>
+        <button class="icon-button" title="Conversar" aria-label="Conversar com ${escapeHtml(contact.name)}" data-start-contact-chat="${contact.whatsappId}" type="button">${icon('chat', 17)}</button>
+        <button class="icon-button" title="Editar" aria-label="Editar ${escapeHtml(contact.name)}" data-edit-contact="${contact.id}" type="button">${icon('edit', 17)}</button>
+        <button class="icon-button danger-icon" title="Apagar" aria-label="Apagar ${escapeHtml(contact.name)}" data-delete-contact="${contact.id}" type="button">${icon('trash', 17)}</button>
       </div>
     </article>
   `;
@@ -1376,16 +1852,11 @@ function contactItem(contact) {
 
 function conversationsTab() {
   const conversations = visibleConversations();
+  const unreadTotal = state.conversations.filter((conversation) => conversationUnreadCount(conversation) > 0).length;
   return `
-    <div class="topbar">
-      <div>
-        <h1>Conversas</h1>
-        <p class="muted">Visualize e responda conversas do WhatsApp conectado.</p>
-      </div>
-      <button class="secondary" id="refreshConversations" type="button">Atualizar</button>
-    </div>
-    <section class="panel compose-panel">
-      <h2>Iniciar conversa</h2>
+    ${pageHeader('Conversas', 'Visualize e responda conversas do WhatsApp conectado.', `<button class="secondary" id="refreshConversations" type="button">${icon('refresh', 16)} Atualizar</button>`)}
+    <details class="panel compose-panel">
+      <summary>${icon('plus', 16)} Iniciar nova conversa</summary>
       <form class="compose-form" id="startConversationForm">
         <select name="targetId" required>
           <option value="">Escolha um grupo ou contato</option>
@@ -1397,28 +1868,51 @@ function conversationsTab() {
           </optgroup>
         </select>
         <input name="message" placeholder="Mensagem inicial" required>
-        <button class="primary" type="submit">Enviar</button>
+        <button class="primary" type="submit">${icon('send', 16)} Enviar</button>
       </form>
-    </section>
-    <div class="conversation-filters">
-      <button class="${state.conversationFilter === 'all' ? 'active' : ''}" data-conversation-filter="all" type="button">Todos</button>
-      <button class="${state.conversationFilter === 'groups' ? 'active' : ''}" data-conversation-filter="groups" type="button">Grupos</button>
-      <button class="${state.conversationFilter === 'contacts' ? 'active' : ''}" data-conversation-filter="contacts" type="button">Contatos</button>
-      <button class="${state.conversationFilter === 'unread' ? 'active' : ''}" data-conversation-filter="unread" type="button">Não lidas</button>
-    </div>
+    </details>
     <section class="chat-shell ${state.selectedConversationId ? 'has-selected-conversation' : ''}">
-      <aside class="chat-list">
-        ${conversations.length ? conversations.map(conversationItem).join('') : '<div class="empty">Nenhuma conversa neste filtro.</div>'}
+      <aside class="chat-sidebar">
+        <div class="chat-sidebar-head">
+          <label class="search-field">
+            <span>${icon('search', 16)}</span>
+            <input id="conversationSearch" placeholder="Buscar conversa" aria-label="Buscar conversa" value="${escapeHtml(state.conversationSearch)}" autocomplete="off">
+          </label>
+          <div class="conversation-filters" role="group" aria-label="Filtrar conversas">
+            <button class="${state.conversationFilter === 'all' ? 'active' : ''}" data-conversation-filter="all" type="button">Todas</button>
+            <button class="${state.conversationFilter === 'unread' ? 'active' : ''}" data-conversation-filter="unread" type="button">Não lidas${unreadTotal ? ` · ${unreadTotal}` : ''}</button>
+            <button class="${state.conversationFilter === 'groups' ? 'active' : ''}" data-conversation-filter="groups" type="button">Grupos</button>
+            <button class="${state.conversationFilter === 'contacts' ? 'active' : ''}" data-conversation-filter="contacts" type="button">Contatos</button>
+          </div>
+        </div>
+        <div class="chat-list">
+          ${conversations.length ? conversations.map(conversationItem).join('') : emptyState('Nenhuma conversa neste filtro.', 'chat')}
+        </div>
       </aside>
       <div class="chat-window">
-        ${state.selectedConversationId ? conversationMessages() : '<div class="empty">Selecione uma conversa.</div>'}
+        ${state.selectedConversationId ? conversationMessages() : emptyState('Selecione uma conversa para ler e responder.', 'chat')}
       </div>
     </section>
   `;
 }
 
+function conversationTimeLabel(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return '';
+  const date = new Date(value < 1e12 ? value * 1000 : value);
+  const now = new Date();
+  if (localDateKey(date) === localDateKey(now)) return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (localDateKey(date) === localDateKey(yesterday)) return 'Ontem';
+  if (now - date < 6 * 86400000) return date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
 function visibleConversations() {
+  const query = state.conversationSearch.trim().toLowerCase();
   return state.conversations.filter((conversation) => {
+    if (query && !`${conversation.name || ''} ${conversation.lastMessage || ''} ${cleanWhatsAppId(conversation.id)}`.toLowerCase().includes(query)) return false;
     if (state.conversationFilter === 'groups') return conversation.isGroup;
     if (state.conversationFilter === 'contacts') return !conversation.isGroup;
     if (state.conversationFilter === 'unread') return conversationUnreadCount(conversation) > 0;
@@ -1437,7 +1931,7 @@ function renderConversationListOnly() {
   const conversations = visibleConversations();
   list.innerHTML = conversations.length
     ? conversations.map(conversationItem).join('')
-    : '<div class="empty">Nenhuma conversa neste filtro.</div>';
+    : emptyState('Nenhuma conversa neste filtro.', 'chat');
   bindConversationListActions();
   restoreConversationScroll();
   updateNav();
@@ -1450,22 +1944,22 @@ function conversationItem(conversation) {
   const pinned = state.pinnedConversations.includes(conversation.id);
   const avatar = conversation.avatarUrl
     ? `<img class="chat-avatar" src="${escapeHtml(conversation.avatarUrl)}" alt="">`
-    : `<span class="chat-avatar chat-avatar-fallback">${conversation.isGroup ? 'G' : 'C'}</span>`;
+    : `<span class="chat-avatar chat-avatar-fallback ${conversation.isGroup ? 'is-group' : ''}">${escapeHtml(initialsOf(conversation.name, conversation.isGroup ? 'G' : 'C'))}</span>`;
   return `
-    <button class="chat-row ${active} ${unread ? 'has-unread' : ''}" data-open-conversation="${escapeHtml(conversation.id)}" type="button">
+    <button class="chat-row ${active} ${unread ? 'has-unread' : ''} ${pinned ? 'is-pinned' : ''}" data-open-conversation="${escapeHtml(conversation.id)}" type="button">
       ${avatar}
       <div class="chat-row-content">
         <div class="chat-row-head">
           <strong>${escapeHtml(conversation.name)}</strong>
-          <span class="chat-row-actions">
-            ${pinned ? '<span class="pin-badge">Fixado</span>' : ''}
-            ${unread ? `<span class="unread-badge">${unread}</span>` : ''}
-            <span class="pin-button" data-pin-conversation="${escapeHtml(conversation.id)}">${pinned ? 'Desfixar' : 'Fixar'}</span>
-          </span>
+          <small class="chat-row-time">${escapeHtml(conversationTimeLabel(conversation.timestamp))}</small>
         </div>
         <div class="chat-row-meta">
-          <span>${conversation.isGroup ? 'Grupo' : 'Contato'}</span>
-          <small>${escapeHtml(conversation.lastMessage || '')}</small>
+          <small>${conversation.isGroup ? '<span class="chat-kind">Grupo · </span>' : ''}${escapeHtml(conversation.lastMessage || '')}</small>
+          <span class="chat-row-actions">
+            ${pinned ? `<span class="pin-badge" title="Fixada">${icon('pin', 13)}</span>` : ''}
+            ${unread ? `<span class="unread-badge">${unread}</span>` : ''}
+            <span class="pin-button" title="${pinned ? 'Desfixar' : 'Fixar'}" aria-label="${pinned ? 'Desfixar conversa' : 'Fixar conversa'}" data-pin-conversation="${escapeHtml(conversation.id)}">${pinned ? 'Desfixar' : 'Fixar'}</span>
+          </span>
         </div>
       </div>
     </button>
@@ -1493,49 +1987,81 @@ function conversationMessages() {
   const replyDraft = storedReplyDraft();
   const avatar = conversation?.avatarUrl
     ? `<img class="conversation-avatar" src="${escapeHtml(conversation.avatarUrl)}" alt="">`
-    : `<div class="conversation-avatar">${conversation?.isGroup ? 'G' : 'C'}</div>`;
+    : `<div class="conversation-avatar ${conversation?.isGroup ? 'is-group' : ''}">${escapeHtml(initialsOf(conversation?.name, conversation?.isGroup ? 'G' : 'C'))}</div>`;
+  const relatedSchedules = state.schedules.filter((schedule) => (
+    (schedule.groupIds || []).includes(state.selectedConversationId) || (schedule.contactIds || []).includes(state.selectedConversationId)
+  ));
+  const nextRelated = relatedSchedules
+    .map((schedule) => ({ schedule, date: nextRunFor(schedule) }))
+    .filter((item) => item.date)
+    .sort((a, b) => a.date - b.date)[0];
   return `
     <div class="conversation-header">
-      <button class="chat-back-button" id="mobileBackToChats" type="button">←</button>
+      <button class="chat-back-button" id="mobileBackToChats" type="button" aria-label="Voltar para a lista">${icon('back', 18)}</button>
       ${avatar}
       <div>
         <strong>${escapeHtml(conversation?.name || 'Conversa')}</strong>
-        <span>${conversation?.isGroup ? 'Grupo' : 'Contato'}</span>
+        <span>${conversation?.isGroup ? 'Grupo' : 'Contato'}${relatedSchedules.length ? ` · ${relatedSchedules.length} agendamento(s)` : ''}</span>
       </div>
-      <button class="danger" id="deleteConversation" type="button">Apagar conversa</button>
+      <button class="icon-button danger-icon" id="deleteConversation" type="button" title="Apagar conversa" aria-label="Apagar conversa">${icon('trash', 17)}</button>
     </div>
+    ${nextRelated ? `<div class="chat-next-schedule">${icon('clock', 15)} Próxima mensagem agendada: <strong>${escapeHtml(nextRelated.schedule.title)}</strong> · ${escapeHtml(nextRelated.schedule.time)} (${escapeHtml(relativeRunLabel(nextRelated.date))})</div>` : ''}
     <div class="messages">
-      ${state.messages.length ? state.messages.map((message) => `
+      ${state.messages.length ? state.messages.map((message, index) => `
+        ${messageDayDivider(message, state.messages[index - 1])}
         <div class="bubble ${message.fromMe ? 'mine' : ''}" data-message-id="${escapeHtml(message.id || '')}">
           ${conversation?.isGroup && !message.fromMe ? `<strong class="message-sender">${escapeHtml(message.senderName || cleanWhatsAppId(message.from) || 'Participante')}</strong>` : ''}
           ${messageMediaMarkup(message)}
           <p>${formatWhatsAppText(message.body, message)}</p>
-          <span class="message-meta">${new Date(message.timestamp).toLocaleString('pt-BR')}${message.fromMe ? messageAckMarkup(message.ack) : ''}</span>
+          <span class="message-meta" title="${escapeHtml(new Date(message.timestamp).toLocaleString('pt-BR'))}">${new Date(message.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${message.fromMe ? messageAckMarkup(message.ack) : ''}</span>
           ${message.fromMe ? `<div class="message-actions">
             <button class="link-button message-action" data-delete-message="${escapeHtml(message.id)}" type="button">Apagar</button>
           </div>` : ''}
         </div>
-      `).join('') : '<div class="empty">Nenhuma mensagem carregada.</div>'}
+      `).join('') : emptyState('Nenhuma mensagem carregada.', 'chat')}
     </div>
-    <button class="scroll-bottom-button" id="scrollMessagesBottom" type="button" title="Ir para as mensagens mais recentes">↓</button>
+    <button class="scroll-bottom-button" id="scrollMessagesBottom" type="button" title="Ir para as mensagens mais recentes" aria-label="Ir para as mensagens mais recentes">${icon('down', 20)}</button>
     <form class="reply-box" id="replyForm">
-      <input class="reply-name" name="replyBotName" placeholder="Nome na resposta" value="${escapeHtml(state.replyBotName)}" autocomplete="off">
-      <button class="secondary emoji-button" type="button" data-emoji="🙂">🙂</button>
-      <button class="secondary emoji-button" type="button" data-emoji="👍">👍</button>
-      <button class="secondary emoji-button" type="button" data-emoji="✅">✅</button>
-      <input name="attachment" type="file" hidden id="replyAttachment">
-      <button class="secondary" id="attachButton" type="button">Anexo</button>
-      <button class="secondary" id="recordAudioButton" type="button">Gravar</button>
+      <label class="reply-as">Responder como
+        <input class="reply-name" name="replyBotName" placeholder="sem assinatura" value="${escapeHtml(state.replyBotName)}" autocomplete="off" aria-label="Nome na resposta">
+      </label>
+      <div class="reply-tools">
+        <input name="attachment" type="file" hidden id="replyAttachment">
+        <button class="icon-button" id="attachButton" type="button" title="Anexar arquivo" aria-label="Anexar arquivo">${icon('clip', 18)}</button>
+        <button class="icon-button emoji-button" type="button" data-emoji="🙂" aria-label="Inserir 🙂">🙂</button>
+        <button class="icon-button emoji-button" type="button" data-emoji="👍" aria-label="Inserir 👍">👍</button>
+        <button class="icon-button emoji-button" type="button" data-emoji="✅" aria-label="Inserir ✅">✅</button>
+      </div>
       <div class="recording-panel" id="recordingPanel" hidden>
         <span id="recordingTimer">00:00</span>
         <div class="recording-bars" id="recordingBars">
           ${Array.from({ length: 18 }, (_, index) => `<i style="--level:${(index % 5) + 2}"></i>`).join('')}
         </div>
       </div>
-      <textarea class="reply-message" name="message" data-conversation-id="${escapeHtml(state.selectedConversationId || '')}" placeholder="Digite uma resposta" rows="1" autocomplete="off" autocapitalize="sentences" spellcheck="true">${escapeHtml(replyDraft?.message || '')}</textarea>
-      <button class="primary" type="submit">Enviar</button>
+      <div class="reply-row">
+        <textarea class="reply-message" name="message" data-conversation-id="${escapeHtml(state.selectedConversationId || '')}" placeholder="Escreva uma mensagem" rows="1" autocomplete="off" autocapitalize="sentences" spellcheck="true" aria-label="Mensagem">${escapeHtml(replyDraft?.message || '')}</textarea>
+        <button class="icon-button record-button" id="recordAudioButton" type="button" title="Gravar áudio" aria-label="Gravar áudio">${recordButtonContent('idle')}</button>
+        <button class="primary reply-send" type="submit">${icon('send', 16)}<span>Enviar</span></button>
+      </div>
     </form>
   `;
+}
+
+function recordButtonContent(mode) {
+  if (mode === 'recording') return `${icon('stop', 18)}<span class="sr-only">Parar</span>`;
+  if (mode === 'processing') return `<span class="spinner" aria-hidden="true"></span><span class="sr-only">Processando...</span>`;
+  return `${icon('mic', 18)}<span class="sr-only">Gravar</span>`;
+}
+
+function messageDayDivider(message, previous) {
+  if (!message?.timestamp) return '';
+  const key = localDateKey(new Date(message.timestamp));
+  if (previous?.timestamp && localDateKey(new Date(previous.timestamp)) === key) return '';
+  const today = localDateKey();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const label = key === today ? 'Hoje' : key === localDateKey(yesterday) ? 'Ontem' : new Date(message.timestamp).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  return `<div class="day-divider"><span>${escapeHtml(label)}</span></div>`;
 }
 
 function messageAckMarkup(ack) {
@@ -1672,18 +2198,17 @@ function openPdfPreview(src, filename = 'Documento PDF') {
 function statsTab() {
   const selectedWatchers = state.statsWatcherIds.length ? state.statsWatcherIds : state.watchers.map((watcher) => watcher.id);
   return `
-    <div class="topbar">
-      <div>
-        <h1>Estatísticas</h1>
-        <p class="muted">Primeira e última mensagem dos participantes observados.</p>
-      </div>
-      <div class="row">
-        <button class="secondary" id="exportStatsExcel" type="button">Excel</button>
-        <button class="secondary" id="exportStatsPdf" type="button">PDF</button>
-        <button class="secondary" id="refreshStats" type="button">Atualizar</button>
-      </div>
-    </div>
+    ${pageHeader('Estatísticas', 'Primeira e última mensagem do dia dos participantes observados.', `
+      <button class="secondary" id="exportStatsExcel" type="button">${icon('download', 16)} Excel</button>
+      <button class="secondary" id="exportStatsPdf" type="button">${icon('download', 16)} PDF</button>
+      <button class="primary" id="refreshStats" type="button">${icon('refresh', 16)} Atualizar</button>
+    `)}
+    ${statsSummaryMarkup()}
     <section class="panel stats-filter">
+      <div class="stats-filter-head">
+        <h2>Observações e período</h2>
+        <p class="muted">Escolha um grupo, carregue os participantes e adicione quem deve ser acompanhado.</p>
+      </div>
       <form class="compose-form" id="watcherForm">
         <select name="groupId" required>
           <option value="">Grupo observado</option>
@@ -1716,34 +2241,93 @@ function statsTab() {
           <input id="statsCustomEnd" type="date" value="${escapeHtml(state.statsCustomEnd)}">
         </label>
       </div>
-      <p class="muted">Selecione abaixo quais observações entram no cálculo.</p>
-      <label>Observações cadastradas</label>
-      <div class="groups">
+      <span class="field-label">Observações que entram no cálculo</span>
+      <div class="groups watcher-list">
         ${state.watchers.length ? state.watchers.map((watcher) => `
-          <label class="group-option">
+          <label class="group-option watcher-option">
             <input type="checkbox" name="statsWatcherIds" value="${watcher.id}" ${selectedWatchers.includes(watcher.id) ? 'checked' : ''}>
-            <span>${escapeHtml(watcher.contactName)} <small>${escapeHtml(watcher.groupName)}</small></span>
-            <button class="danger mini-button" data-delete-watcher="${watcher.id}" type="button">Remover</button>
+            <span class="group-name">${escapeHtml(watcher.contactName)} <small>${escapeHtml(watcher.groupName)}</small></span>
+            <button class="icon-button danger-icon" data-delete-watcher="${watcher.id}" type="button" title="Remover observação" aria-label="Remover observação de ${escapeHtml(watcher.contactName)}">${icon('trash', 15)}</button>
           </label>
-        `).join('') : '<div class="empty">Carregue os participantes de um grupo e adicione uma observação.</div>'}
+        `).join('') : emptyState('Carregue os participantes de um grupo e adicione uma observação.', 'users')}
       </div>
     </section>
-    <section class="list">
-      ${state.stats.length ? state.stats.map((item) => `
-        <article class="item">
-          <div class="item-head">
-            <div>
-              <p class="item-title">${escapeHtml(item.contactName || item.name)}</p>
-              <p class="muted">${escapeHtml(item.groupName || item.tag || 'Sem grupo')} | ${escapeHtml(item.contactPhone || item.phone)}</p>
+  `;
+}
+
+function statsMinutes(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function minutesLabel(minutes) {
+  if (minutes === null || minutes === undefined) return '--:--';
+  const rounded = Math.round(minutes);
+  return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(rounded % 60).padStart(2, '0')}`;
+}
+
+function statsSummaryMarkup() {
+  if (!state.stats.length) {
+    return `<section class="panel activity-panel">${emptyState('Clique em Atualizar para calcular as estatísticas da data escolhida.', 'chart')}</section>`;
+  }
+  const rows = state.stats.map((item) => ({
+    name: item.contactName || item.name || 'Participante',
+    group: item.groupName || item.tag || 'Sem grupo',
+    phone: item.contactPhone || item.phone || '',
+    count: Number(item.count || 0),
+    first: statsMinutes(item.firstMessageAt),
+    last: statsMinutes(item.lastMessageAt)
+  }));
+  const active = rows.filter((row) => row.first !== null);
+  const average = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+  const avgFirst = average(active.map((row) => row.first));
+  const avgLast = average(active.map((row) => row.last ?? row.first));
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  const startHour = Math.min(6, ...active.map((row) => Math.floor(row.first / 60)));
+  const endHour = Math.max(22, ...active.map((row) => Math.ceil((row.last ?? row.first) / 60)));
+  const span = Math.max(60, (endHour - startHour) * 60);
+  const pos = (minutes) => ((minutes - startHour * 60) / span) * 100;
+  const ticks = [];
+  for (let hour = startHour; hour <= endHour; hour += 4) ticks.push(hour);
+  const dateLabel = state.statsDate ? formatDate(state.statsDate) : 'hoje';
+  return `
+    <section class="kpi-grid" aria-label="Indicadores">
+      <article class="kpi"><span class="kpi-label">Primeira mensagem média</span><strong class="kpi-value is-accent">${minutesLabel(avgFirst)}</strong><span class="kpi-sub">${escapeHtml(dateLabel)}</span></article>
+      <article class="kpi"><span class="kpi-label">Última mensagem média</span><strong class="kpi-value is-info">${minutesLabel(avgLast)}</strong><span class="kpi-sub">${escapeHtml(dateLabel)}</span></article>
+      <article class="kpi"><span class="kpi-label">Participantes ativos</span><strong class="kpi-value">${active.length} de ${rows.length}</strong><span class="kpi-sub ${rows.length - active.length ? 'is-warn' : ''}">${rows.length - active.length ? `${rows.length - active.length} sem mensagens` : 'Todos enviaram mensagem'}</span></article>
+      <article class="kpi"><span class="kpi-label">Mensagens registradas</span><strong class="kpi-value">${total}</strong><span class="kpi-sub">Somando os observados</span></article>
+    </section>
+    <section class="panel activity-panel" aria-label="Janela de atividade">
+      <div class="activity-head">
+        <h2>Janela de atividade por participante</h2>
+        <div class="legend">
+          <span><i class="legend-dot is-first"></i>Primeira</span>
+          <span><i class="legend-dot is-last"></i>Última</span>
+        </div>
+      </div>
+      <div class="activity-chart">
+        <div class="act-row act-axis" aria-hidden="true">
+          <span></span>
+          <div class="act-track">${ticks.map((hour) => `<span style="left:${pos(hour * 60)}%">${String(hour).padStart(2, '0')}h</span>`).join('')}</div>
+          <span></span>
+        </div>
+        ${rows.map((row) => `
+          <div class="act-row" title="${escapeHtml(`${row.name} · ${row.group}${row.phone ? ` · ${row.phone}` : ''}`)}">
+            <span class="act-name"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.group)}</small></span>
+            <div class="act-track">
+              ${ticks.map((hour) => `<i class="act-grid" style="left:${pos(hour * 60)}%"></i>`).join('')}
+              ${row.first !== null ? `
+                <span class="act-bar" style="left:${pos(row.first)}%;width:${Math.max(0.6, pos(row.last ?? row.first) - pos(row.first))}%"></span>
+                <span class="act-dot is-first" style="left:${pos(row.first)}%"></span>
+                ${row.last !== null && row.last !== row.first ? `<span class="act-dot is-last" style="left:${pos(row.last)}%"></span>` : ''}
+              ` : '<span class="act-none">Sem mensagens</span>'}
             </div>
-            <span class="status ${item.count ? '' : 'status-partial'}">${item.count || 0} msg</span>
+            <span class="act-value">${row.first !== null ? `${minutesLabel(row.first)}–${minutesLabel(row.last ?? row.first)}` : '--'} · ${row.count} msg</span>
           </div>
-          <div class="stats-grid">
-            <div><span>Primeira mensagem</span><strong>${item.firstMessageAt ? new Date(item.firstMessageAt).toLocaleTimeString('pt-BR') : '--:--'}</strong></div>
-            <div><span>Última mensagem</span><strong>${item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleTimeString('pt-BR') : '--:--'}</strong></div>
-          </div>
-        </article>
-      `).join('') : '<div class="empty">Clique em Atualizar para calcular as estatísticas de hoje.</div>'}
+        `).join('')}
+      </div>
     </section>
   `;
 }
@@ -1754,9 +2338,12 @@ function userItem(user, canManageUsers) {
   return `
     <article class="item user-item">
       <div class="item-head">
-        <div>
+        <div class="user-identity">
+          ${avatarMarkup(user)}
+          <div>
           <p class="item-title">${escapeHtml(user.name)}</p>
           <p class="muted">${escapeHtml(user.email)}</p>
+          </div>
         </div>
         <span class="status ${user.isOwner ? '' : 'status-partial'}">${user.isOwner ? 'Principal' : 'Admin'}</span>
       </div>
@@ -1778,27 +2365,22 @@ function userItem(user, canManageUsers) {
 }
 
 function logsTab() {
+  const failures = state.logs.filter((log) => log.status === 'failed').length;
   return `
-    <div class="topbar">
-      <div>
-        <h1>Histórico</h1>
-        <p class="muted">Últimos envios processados pelo agendador.</p>
-      </div>
-      <button class="secondary" id="refreshLogs" type="button">Atualizar</button>
-    </div>
-    <section class="list">
+    ${pageHeader('Histórico de envios', 'Últimos envios processados pelo agendador.', `${failures ? `<span class="status status-failed">${failures} falha(s)</span>` : ''}<button class="secondary" id="refreshLogs" type="button">${icon('refresh', 16)} Atualizar</button>`)}
+    <section class="panel log-panel">
       ${
         state.logs.length
           ? state.logs.map((log) => `
-            <article class="item">
-              <div class="item-head">
-                <p class="item-title">${escapeHtml(log.scheduleTitle || 'Agendamento')}</p>
-                <span class="${logStatusClass(log.status)}">${escapeHtml(logStatusLabel(log.status))}</span>
+            <article class="log-row ${log.status === 'failed' ? 'is-failed' : ''}">
+              <span class="log-time">${new Date(log.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<small>${new Date(log.createdAt).toLocaleDateString('pt-BR')}</small></span>
+              <div class="log-copy">
+                <p class="item-title">${escapeHtml(log.scheduleTitle || 'Agendamento')}${log.manual ? ' <small class="muted">· envio manual</small>' : ''}</p>
+                ${log.error ? `<p class="message-preview">${escapeHtml(log.error)}</p>` : ''}
               </div>
-              <p class="muted">${new Date(log.createdAt).toLocaleString('pt-BR')}</p>
-              ${log.error ? `<p class="message-preview">${escapeHtml(log.error)}</p>` : ''}
+              <span class="${logStatusClass(log.status)}">${escapeHtml(logStatusLabel(log.status))}</span>
             </article>`).join('')
-          : '<div class="empty">Nenhum envio registrado.</div>'
+          : emptyState('Nenhum envio registrado ainda.', 'history')
       }
     </section>
   `;
@@ -1815,24 +2397,24 @@ function logStatusClass(status) {
 
 function dayCheckbox(key, label, editing) {
   const checked = editing ? (editing.days || []).includes(key) : ['mon', 'tue', 'wed', 'thu', 'fri'].includes(key);
-  return `<label class="chip day-chip"><input type="checkbox" name="days" value="${key}" ${checked ? 'checked' : ''}><span>${label}</span></label>`;
+  return `<label class="day-pill" title="${label}"><input type="checkbox" name="days" value="${key}" aria-label="${label}" ${checked ? 'checked' : ''}><span>${dayShortLabels[key]}</span></label>`;
 }
 
 function groupsList(selectable, editing) {
   if (!state.whatsapp.groups.length) {
-    if (state.whatsapp.status === 'authenticated') return '<div class="empty">WhatsApp autenticado, mas ainda sincronizando. Aguarde mudar para Conectado.</div>';
-    if (state.whatsapp.status !== 'ready') return '<div class="empty">Conecte o WhatsApp para carregar os grupos.</div>';
-    return '<div class="empty">Nenhum grupo encontrado para este número. Verifique se o bot participa dos grupos e clique em atualizar.</div>';
+    if (state.whatsapp.status === 'authenticated') return emptyState('WhatsApp autenticado, mas ainda sincronizando. Aguarde mudar para Conectado.', 'refresh');
+    if (state.whatsapp.status !== 'ready') return emptyState('Conecte o WhatsApp para carregar os grupos.', 'qr', selectable ? '<button class="secondary btn-sm" data-goto-tab="whatsapp" type="button">Conectar WhatsApp</button>' : '');
+    return emptyState('Nenhum grupo encontrado para este número. Verifique se o bot participa dos grupos e clique em atualizar.', 'users');
   }
 
   return `
-    <div class="groups">
+    <div class="groups ${selectable ? 'is-selectable' : ''}">
       ${state.whatsapp.groups.map((group) => {
-        const checked = editing?.groupIds.includes(group.id);
+        const checked = (editing?.groupIds || []).includes(group.id);
         return `
           <label class="group-option" data-schedule-group="${escapeHtml(group.name.toLowerCase())}">
-            ${selectable ? `<input type="checkbox" name="groupIds" value="${group.id}" data-name="${escapeHtml(group.name)}" ${checked ? 'checked' : ''}>` : ''}
-            ${escapeHtml(group.name)}
+            ${selectable ? `<input type="checkbox" name="groupIds" value="${group.id}" data-name="${escapeHtml(group.name)}" ${checked ? 'checked' : ''}>` : `<span class="group-avatar">${escapeHtml(initialsOf(group.name, 'G'))}</span>`}
+            <span class="group-name">${escapeHtml(group.name)}</span>
           </label>`;
       }).join('')}
     </div>
@@ -1841,7 +2423,7 @@ function groupsList(selectable, editing) {
 
 function contactsList(selectable, editing) {
   if (!state.contacts.length) {
-    return '<div class="empty">Nenhum contato individual cadastrado. Use o menu Contatos para adicionar colaboradores.</div>';
+    return emptyState('Nenhum contato individual cadastrado. Use o menu Contatos para adicionar colaboradores.', 'users');
   }
 
   return `
@@ -1860,35 +2442,53 @@ function contactsList(selectable, editing) {
   `;
 }
 
-function scheduleItem(schedule) {
-  const groupText = (schedule.groupNames || []).map(escapeHtml).join(', ');
-  const contactText = (schedule.contactNames || []).map(escapeHtml).join(', ');
+function scheduleRecurrenceLabel(schedule) {
+  if (schedule.scheduleMode === 'dates') {
+    const dates = schedule.specificDates || [];
+    if (!dates.length) return 'Datas específicas';
+    return dates.length > 3 ? `${dates.slice(0, 3).map(formatDate).join(', ')} +${dates.length - 3}` : dates.map(formatDate).join(', ');
+  }
+  const days = schedule.days || [];
+  const weekdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  if (days.length === 7) return 'Todos os dias';
+  if (days.length === 5 && weekdays.every((day) => days.includes(day))) return 'Seg a sex';
+  if (days.length === 2 && days.includes('sat') && days.includes('sun')) return 'Fins de semana';
+  return dayKeysByIndex.filter((day) => days.includes(day)).map((day) => dayShortLabels[day]).join(', ') || 'Sem dias';
+}
+
+function scheduleItem(schedule, nextId = null) {
+  const groups = schedule.groupNames || [];
+  const contacts = schedule.contactNames || [];
   const botName = schedule.botName || 'SuperVISOR';
+  const status = scheduleTodayStatus(schedule, nextId);
+  const targetLabel = [
+    groups.length ? `${groups.length} grupo${groups.length > 1 ? 's' : ''}` : '',
+    contacts.length ? `${contacts.length} contato${contacts.length > 1 ? 's' : ''}` : ''
+  ].filter(Boolean).join(' · ') || 'Sem destino';
+  const targetTitle = [...groups, ...contacts].join(', ');
   return `
-    <article class="item schedule-card">
-      <div class="item-head">
-        <div>
-          <p class="item-title">${escapeHtml(schedule.title)}</p>
-          <p class="muted">${schedule.time} | ${scheduleWhen(schedule)}</p>
+    <article class="tl-item tone-${status.tone} ${schedule.active ? '' : 'is-paused'}">
+      <div class="tl-time"><span>${escapeHtml(schedule.time)}</span></div>
+      <div class="tl-rail" aria-hidden="true"><span class="tl-dot"></span></div>
+      <div class="tl-card">
+        <div class="tl-head">
+          <h3>${escapeHtml(schedule.title)}</h3>
+          <span class="badge badge-${status.tone}">${status.label}</span>
         </div>
-        <span class="status">${schedule.active ? 'Ativo' : 'Pausado'}</span>
-      </div>
-      <div class="schedule-meta">
-        <div><span>Título</span><strong>${escapeHtml(schedule.title)}</strong></div>
-        <div><span>Bot</span><strong>${escapeHtml(botName)}</strong></div>
-        ${groupText ? `<div><span>Grupos</span><strong>${groupText}</strong></div>` : ''}
-        ${contactText ? `<div><span>Contatos</span><strong>${contactText}</strong></div>` : ''}
-      </div>
-      <div class="schedule-message">
-        <span>Mensagem</span>
-        <p>${escapeHtml(schedule.message)}</p>
-      </div>
-      <div class="row schedule-actions">
-        <button class="secondary" data-edit="${schedule.id}">Editar</button>
-        <button class="secondary" data-reuse="${schedule.id}">Reaproveitar</button>
-        <button class="secondary" data-toggle="${schedule.id}">${schedule.active ? 'Pausar' : 'Ativar'}</button>
-        <button class="secondary" data-send="${schedule.id}">Enviar agora</button>
-        <button class="danger" data-delete="${schedule.id}">Remover</button>
+        <p class="tl-message" title="${escapeHtml(schedule.message)}">${escapeHtml(schedule.message)}</p>
+        <div class="tl-meta">
+          <span class="tag" title="${escapeHtml(targetTitle)}">${icon('users', 14)} ${escapeHtml(targetLabel)}</span>
+          <span class="tag">${icon('calendar', 14)} ${escapeHtml(scheduleRecurrenceLabel(schedule))}</span>
+          <span class="tag tag-quiet">Bot: ${escapeHtml(botName)}</span>
+        </div>
+        ${targetTitle ? `<p class="tl-targets">${escapeHtml(targetTitle)}</p>` : ''}
+        <div class="tl-actions">
+          <button class="ghost-button" type="button" data-edit="${schedule.id}">${icon('edit', 15)} Editar</button>
+          <button class="ghost-button" type="button" data-reuse="${schedule.id}">${icon('copy', 15)} Reaproveitar</button>
+          <button class="ghost-button" type="button" data-toggle="${schedule.id}">${icon(schedule.active ? 'pause' : 'play', 15)} ${schedule.active ? 'Pausar' : 'Ativar'}</button>
+          <button class="ghost-button" type="button" data-send="${schedule.id}">${icon('send', 15)} Enviar agora</button>
+          <button class="ghost-button is-danger" type="button" data-delete="${schedule.id}">${icon('trash', 15)} Remover</button>
+        </div>
       </div>
     </article>
   `;
@@ -2180,15 +2780,38 @@ function bindContent() {
       renderContent();
     });
   });
-  document.querySelectorAll('[data-remove-date]').forEach((button) => {
+  bindSelectedDateChips();
+  bindScheduleComposer();
+  document.querySelectorAll('[data-schedule-view]').forEach((button) => {
     button.addEventListener('click', () => {
-      state.selectedDates = state.selectedDates.filter((date) => date !== button.dataset.removeDate);
-      renderContent();
+      state.scheduleView = button.dataset.scheduleView;
+      renderScheduleListPreservingForm();
     });
+  });
+  document.querySelectorAll('[data-schedule-status]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.scheduleStatusFilter = button.dataset.scheduleStatus;
+      renderScheduleListPreservingForm();
+    });
+  });
+  document.querySelectorAll('[data-goto-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelector(`.nav [data-tab="${button.dataset.gotoTab}"]`)?.click();
+    });
+  });
+  document.querySelector('#dismissOnboarding')?.addEventListener('click', () => {
+    uiStoreSet('onboardingDismissed', 'true');
+    document.querySelector('.onboarding')?.remove();
+  });
+  document.querySelector('#conversationSearch')?.addEventListener('input', (event) => {
+    state.conversationSearch = event.target.value;
+    state.conversationListScroll = 0;
+    renderConversationListOnly();
   });
   document.querySelector('#cancelEdit')?.addEventListener('click', () => {
     state.editingId = null;
     state.scheduleDraft = null;
+    state.scheduleEditDraft = null;
     state.selectedDates = [];
     state.selectedDatesScheduleId = null;
     renderContent();
@@ -2204,9 +2827,11 @@ function bindContent() {
     button.addEventListener('click', () => {
       state.editingId = button.dataset.edit;
       state.scheduleDraft = null;
+      state.scheduleEditDraft = null;
       const editing = state.schedules.find((item) => item.id === state.editingId);
       state.selectedDates = [...(editing?.specificDates || [])];
       renderContent();
+      scrollToScheduleForm();
     });
   });
   document.querySelectorAll('[data-reuse]').forEach((button) => {
@@ -2258,6 +2883,7 @@ function reuseSchedule(scheduleId) {
   state.scheduleDraft = {
     ...schedule,
     title: `${schedule.title || 'Agendamento'} (cópia)`,
+    isCopy: true,
     active: true,
     days: [...(schedule.days || [])],
     specificDates: [...(schedule.specificDates || [])],
@@ -2266,8 +2892,18 @@ function reuseSchedule(scheduleId) {
   };
   state.selectedDates = [...(state.scheduleDraft.specificDates || [])];
   state.selectedDatesScheduleId = 'new';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  state.scheduleEditDraft = null;
   renderContent();
+  scrollToScheduleForm();
+}
+
+function scrollToScheduleForm() {
+  requestAnimationFrame(() => {
+    const composer = document.querySelector('.composer');
+    if (!composer) return;
+    composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    composer.querySelector('input[name="title"]')?.focus({ preventScroll: true });
+  });
 }
 
 function addSpecificDate() {
@@ -2276,16 +2912,127 @@ function addSpecificDate() {
     toast('Escolha uma data no calendário.');
     return;
   }
-    state.selectedDates = [...new Set([...state.selectedDates, input.value])].sort();
+  state.selectedDates = [...new Set([...state.selectedDates, input.value])].sort();
   state.selectedDatesScheduleId = state.editingId || 'new';
+  input.value = '';
+  updateSelectedDatesUi();
+}
+
+function updateSelectedDatesUi() {
+  const dates = getSelectedDates();
+  const hidden = document.querySelector('#scheduleForm input[name="specificDates"]');
+  if (hidden) hidden.value = dates.join(',');
+  const list = document.querySelector('.date-chip-list');
+  if (list) list.innerHTML = selectedDatesMarkup(dates);
+  bindSelectedDateChips();
+}
+
+function bindSelectedDateChips() {
+  document.querySelectorAll('[data-remove-date]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedDates = state.selectedDates.filter((date) => date !== button.dataset.removeDate);
+      updateSelectedDatesUi();
+    });
+  });
+}
+
+function captureScheduleFormDraft() {
+  const form = document.querySelector('#scheduleForm');
+  if (!form) return null;
+  const data = new FormData(form);
+  return {
+    title: data.get('title') || '',
+    botName: data.get('botName') || '',
+    message: data.get('message') || '',
+    time: data.get('time') || '08:00',
+    active: data.get('active') !== 'false',
+    scheduleMode: data.get('scheduleMode') || 'weekly',
+    days: data.getAll('days'),
+    specificDates: getSelectedDates(),
+    groupIds: data.getAll('groupIds'),
+    contactIds: data.getAll('contactIds')
+  };
+}
+
+function renderScheduleListPreservingForm() {
+  const form = document.querySelector('#scheduleForm');
+  const dirty = form && [...form.elements].some((element) => element.name && (
+    (element.type === 'checkbox' || element.type === 'radio') ? element.checked !== element.defaultChecked
+      : element.tagName === 'SELECT' ? [...element.options].some((option) => option.selected !== option.defaultSelected)
+      : element.value !== element.defaultValue
+  ));
+  if (dirty && !state.editingId) {
+    state.scheduleDraft = { ...(state.scheduleDraft || {}), ...captureScheduleFormDraft() };
+  } else if (dirty && state.editingId) {
+    state.scheduleEditDraft = { ...captureScheduleFormDraft(), id: state.editingId };
+  }
+  const scrollY = window.scrollY;
   renderContent();
+  window.scrollTo({ top: scrollY });
+}
+
+function bindScheduleComposer() {
+  const form = document.querySelector('#scheduleForm');
+  if (!form) return;
+  const syncMode = () => {
+    const mode = form.querySelector('input[name="scheduleMode"]:checked')?.value || 'weekly';
+    form.dataset.mode = mode;
+    form.querySelectorAll('.seg label').forEach((label) => {
+      label.classList.toggle('active', Boolean(label.querySelector('input:checked')));
+    });
+  };
+  const syncPreview = () => {
+    const preview = document.querySelector('#schedulePreview');
+    if (!preview) return;
+    const bot = String(form.elements.botName?.value || '').trim() || 'SuperVISOR';
+    const message = String(form.elements.message?.value || '');
+    const time = form.elements.time?.value || '--:--';
+    preview.innerHTML = `
+      <strong class="wa-bot">${escapeHtml(bot)}:</strong>
+      <span class="wa-text">${message.trim() ? formatWhatsAppText(message) : '<em class="wa-placeholder">A mensagem aparece aqui enquanto você digita.</em>'}</span>
+      <span class="wa-time">${escapeHtml(time)} ✓✓</span>
+    `;
+  };
+  const syncTargets = () => {
+    const summary = document.querySelector('#scheduleTargetSummary');
+    if (!summary) return;
+    const groups = form.querySelectorAll('input[name="groupIds"]:checked').length;
+    const contacts = form.querySelectorAll('input[name="contactIds"]:checked').length;
+    summary.classList.toggle('is-empty', !groups && !contacts);
+    summary.textContent = !groups && !contacts
+      ? 'Nenhum destino selecionado ainda.'
+      : `Selecionado: ${groups} grupo(s) e ${contacts} contato(s).`;
+  };
+  form.querySelectorAll('input[name="scheduleMode"]').forEach((input) => input.addEventListener('change', syncMode));
+  form.addEventListener('input', (event) => {
+    if (['message', 'botName', 'time'].includes(event.target.name)) syncPreview();
+  });
+  form.addEventListener('change', (event) => {
+    if (event.target.name === 'groupIds' || event.target.name === 'contactIds') syncTargets();
+  });
+  form.querySelectorAll('[data-wrap]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const textarea = form.elements.message;
+      const marker = button.dataset.wrap;
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? textarea.value.length;
+      const selected = textarea.value.slice(start, end) || 'texto';
+      textarea.value = `${textarea.value.slice(0, start)}${marker}${selected}${marker}${textarea.value.slice(end)}`;
+      textarea.focus();
+      textarea.setSelectionRange(start + 1, start + 1 + selected.length);
+      syncPreview();
+    });
+  });
+  syncMode();
+  syncPreview();
+  syncTargets();
 }
 
 function updateContactResults() {
   const target = document.querySelector('.contacts-results');
   if (!target) return;
   const contacts = filteredContacts();
-  target.innerHTML = contacts.length ? contacts.map(contactItem).join('') : '<div class="empty">Nenhum contato encontrado.</div>';
+  target.innerHTML = contacts.length ? contacts.map(contactItem).join('') : emptyState('Nenhum contato encontrado.', 'users');
   const count = document.querySelector('.contact-count');
   if (count) count.textContent = `${contacts.length} contato(s)`;
   bindContactActionButtons();
@@ -2421,6 +3168,7 @@ async function saveSchedule(event) {
     await api(path, { method, body: JSON.stringify(body) });
     state.editingId = null;
     state.scheduleDraft = null;
+    state.scheduleEditDraft = null;
     state.selectedDates = [];
     state.selectedDatesScheduleId = null;
     await loadDashboardData();
@@ -2632,7 +3380,7 @@ async function toggleAudioRecording() {
   const button = document.querySelector('#recordAudioButton');
   if (audioRecorder && audioRecorder.state === 'recording') {
     audioRecorder.stop();
-    button.textContent = 'Processando...';
+    button.innerHTML = recordButtonContent('processing');
     button.disabled = true;
     return;
   }
@@ -2655,7 +3403,8 @@ async function toggleAudioRecording() {
     audioRecorder.addEventListener('stop', sendRecordedAudio);
     audioRecorder.start();
     startRecordingUi(audioRecorderStream);
-    button.textContent = 'Parar';
+    button.innerHTML = recordButtonContent('recording');
+    button.title = 'Parar e enviar áudio';
     button.classList.add('recording');
   } catch (error) {
     toast(`Não consegui acessar o microfone: ${error.message}`);
@@ -2700,7 +3449,8 @@ async function sendRecordedAudio() {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = 'Gravar';
+      button.innerHTML = recordButtonContent('idle');
+      button.title = 'Gravar áudio';
       button.classList.remove('recording');
     }
   }
