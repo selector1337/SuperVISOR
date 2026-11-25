@@ -67,11 +67,9 @@ replaceOnce("    await api('/api/logout', { method: 'POST' });\n    state.user =
   "    await api('/api/logout', { method: 'POST' });\n    socket.disconnect();\n    state.user = null;", 'logout');
 
 // 5. Tela de login da demo.
-replaceOnce("        <div class=\"auth-brand\">\n          ${brandMarkup()}\n        </div>",
-  "        <div class=\"auth-brand\">\n          ${brandMarkup()}\n          <span class=\"auth-trial-badge\">${icon('clock', 14)} Demo • ${trialDaysLabel()}</span>\n        </div>", 'marca do login');
-replaceOnce("<span class=\"auth-badge\">${icon('shield', 14)} Acesso administrativo</span>",
-  "<span class=\"auth-badge\">${icon('clock', 14)} Demonstração${state.trial?.days === null ? ' sem prazo' : ` · ${state.trial?.days ?? 7} dias de teste`}</span>", 'selo do login');
-replaceOnce("${isSetup ? 'Configure o primeiro acesso do painel.' : 'Acesse o dashboard do SuperVISOR.'}",
+replaceOnce("          ${logoMarkup('large')}\n        </div>",
+  "          ${logoMarkup('large')}\n          <span class=\"auth-trial-badge\">${icon('clock', 14)} Demo • ${trialDaysLabel()}</span>\n        </div>", 'marca do login');
+replaceOnce("${isSetup ? 'Configure o primeiro acesso do painel.' : 'Entre para gerenciar sua equipe.'}",
   "${isSetup ? 'Configure o primeiro acesso do painel.' : state.trial?.days === null ? 'Entre com as credenciais do convite. Este ambiente não possui data de expiração.' : 'Entre com as credenciais do convite. Seu teste de ' + (state.trial?.days ?? 7) + ' dias começa no primeiro login.'}", 'texto do login');
 replaceOnce("          <button class=\"primary auth-submit\" type=\"submit\">${isSetup ? 'Criar e entrar' : 'Entrar'}</button>",
   "          <button class=\"primary auth-submit\" type=\"submit\">${isSetup ? 'Criar e entrar' : 'Entrar e começar o teste'}</button>\n          <div class=\"auth-perks\">\n            <strong>No teste você pode</strong>\n            <span>${icon('check', 16)} Conectar um número de WhatsApp</span>\n            <span>${icon('check', 16)} Criar agendamentos para grupos e contatos</span>\n            <span>${icon('check', 16)} Acompanhar conversas e estatísticas da equipe</span>\n          </div>", 'botão do login');
