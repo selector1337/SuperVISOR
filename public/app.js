@@ -472,55 +472,44 @@ function brandMarkup() {
   `;
 }
 
-function authHeroMarkup() {
-  return `
-    <div class="auth-hero-copy">
-      <h2>Sua equipe no WhatsApp, no horário certo.</h2>
-      <p>Agende comunicados, acompanhe conversas e veja quem já começou o dia, tudo em um painel.</p>
-    </div>
-    <div class="auth-hero-art" aria-hidden="true">
-      <div class="hero-card">
-        <span class="hero-card-label">Hoje</span>
-        <div class="hero-row"><b class="is-done">08:00</b><span>Bom dia, equipe</span><i class="badge badge-success">Enviado</i></div>
-        <div class="hero-row"><b class="is-next">14:00</b><span>Reunião de metas</span><i class="badge badge-info">Próximo</i></div>
-        <div class="hero-row"><b>17:45</b><span>Fechamento do dia</span><i class="badge badge-neutral">Aguardando</i></div>
-      </div>
-      <div class="hero-chat">
-        <span class="hero-card-label">Equipe de vendas</span>
-        <div class="wa-bubble"><strong class="wa-bot">SuperVISOR</strong><span class="wa-text">Hoje às 15h temos a reunião de metas da semana.</span><span class="wa-time">14:00 ✓✓</span></div>
-      </div>
-    </div>
-  `;
-}
-
 function renderAuth() {
   const isSetup = !state.hasUsers;
   app.innerHTML = `
     <section class="auth-shell">
-      <div class="auth-hero">
+      <div class="auth-backdrop" aria-hidden="true"></div>
+      <div class="auth-center">
         <div class="auth-brand">
-          ${brandMarkup()}
+          <span class="auth-mark">${icon('check', 28)}</span>
+          ${logoMarkup('large')}
         </div>
-        ${authHeroMarkup()}
-      </div>
-      <div class="auth-side">
         <form class="auth-panel form" id="authForm">
-          <span class="auth-badge">${icon('shield', 14)} Acesso administrativo</span>
           <div class="auth-heading">
-            <h1>${isSetup ? 'Criar administrador' : 'Entrar no painel'}</h1>
-            <p class="muted">${isSetup ? 'Configure o primeiro acesso do painel.' : 'Acesse o dashboard do SuperVISOR.'}</p>
+            <h1>${isSetup ? 'Criar administrador' : 'Bem-vindo de volta'}</h1>
+            <p class="muted">${isSetup ? 'Configure o primeiro acesso do painel.' : 'Entre para gerenciar sua equipe.'}</p>
           </div>
           ${isSetup ? '<label>Nome<input name="name" required minlength="2" autocomplete="name"></label>' : ''}
           <label>E-mail<input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="seu@email.com"></label>
-          <label>Senha<input name="password" type="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="Sua senha"></label>
+          <label>
+            <span class="label-row">Senha<button class="link-button" id="togglePassword" type="button" aria-pressed="false">Mostrar</button></span>
+            <input name="password" type="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="Sua senha">
+          </label>
           <button class="primary auth-submit" type="submit">${isSetup ? 'Criar e entrar' : 'Entrar'}</button>
-          <p class="auth-foot">Versão ${APP_VERSION} · <button class="link-button" id="changelogButton" type="button">Novidades</button></p>
+          <p class="auth-secure">${icon('shield', 14)} Acesso restrito a administradores</p>
         </form>
+        <p class="auth-foot">Gestor de equipes · Versão ${APP_VERSION} · <button class="link-button" id="changelogButton" type="button">Novidades</button></p>
       </div>
     </section>
   `;
 
   document.querySelector('#changelogButton')?.addEventListener('click', showChangelog);
+  document.querySelector('#togglePassword')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const input = document.querySelector('#authForm input[name="password"]');
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    event.currentTarget.textContent = show ? 'Ocultar' : 'Mostrar';
+    event.currentTarget.setAttribute('aria-pressed', String(show));
+  });
   document.querySelector('#authForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget));
