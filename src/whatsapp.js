@@ -1,5 +1,7 @@
 const qrcode = require('qrcode');
-const { Client, LocalAuth, Message, MessageMedia } = require('whatsapp-web.js');
+const { Client: BaseClient, LocalAuth, Message, MessageMedia } = require('whatsapp-web.js');
+const { createLoginAwareClient } = require('./whatsapp-client');
+const Client = createLoginAwareClient(BaseClient);
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -79,6 +81,7 @@ let cachedGroups = [];
 let lastError = null;
 let isInitializing = false;
 let startPromise = null;
+let disconnectPromise = null;
 let healthTimer = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
@@ -187,10 +190,7 @@ function commandLineForPid(pid) {
 function processLooksLikeWhatsappBrowser(pid) {
   const commandLine = commandLineForPid(pid);
   if (!commandLine) return process.platform === 'win32';
-  return commandLine.includes('.wwebjs_auth')
-    || commandLine.includes(sessionDir())
-    || commandLine.includes('whatsapp-web.js')
-    || commandLine.includes('--remote-debugging');
+  return commandLine.includes(sessionDir());
 }
 
 function killProcess(pid, reason) {
@@ -327,6 +327,8 @@ async function startClientInternal({ recovered = false } = {}) {
 
   client = new Client({
     authStrategy: new LocalAuth({ rmMaxRetries: 10 }),
+    webVersionCache: { type: 'none' },
+    authTimeoutMs: 120000,
     puppeteer: {
       headless: true,
       protocolTimeout: 120000,
@@ -346,15 +348,32 @@ async function startClientInternal({ recovered = false } = {}) {
     }
   });
 
-  client.on('qr', async (qr) => {
+  const initializingClient = client;
+  const isCurrent = () => client === initializingClient && !isShuttingDown;
+  const onCurrent = (event, handler) => initializingClient.on(event, (...args) => {
+    if (isCurrent()) return handler(...args);
+  });
+  debugLog('Versões da conexão WhatsApp', `whatsapp-web.js=${require('whatsapp-web.js/package.json').version} puppeteer=${require('puppeteer/package.json').version}`);
+
+  onCurrent('qr', async (qr) => {
+    const dataUrl = await qrcode.toDataURL(qr);
+    if (!isCurrent()) return;
     status = 'qr';
     lastError = null;
-    qrCodeDataUrl = await qrcode.toDataURL(qr);
+    qrCodeDataUrl = dataUrl;
     debugLog('QR Code do WhatsApp gerado.');
     emitState();
   });
 
-  client.on('loading_screen', (percent, message) => {
+  onCurrent('qr:image', (dataUrl) => {
+    status = 'qr';
+    lastError = null;
+    qrCodeDataUrl = dataUrl;
+    debugLog('QR Code obtido da nova tela de login do WhatsApp.');
+    emitState();
+  });
+
+  onCurrent('loading_screen', (percent, message) => {
     debugLog('Tela de carregamento WhatsApp', `${percent || 0}% ${message || ''}`);
     if (status === 'ready' || status === 'authenticated') return;
     status = 'loading';
@@ -362,7 +381,7 @@ async function startClientInternal({ recovered = false } = {}) {
     emitState();
   });
 
-  client.on('authenticated', () => {
+  onCurrent('authenticated', () => {
     if (status === 'ready') return;
     status = 'authenticated';
     lastError = null;
@@ -371,14 +390,14 @@ async function startClientInternal({ recovered = false } = {}) {
     emitState();
   });
 
-  client.on('auth_failure', (message) => {
+  onCurrent('auth_failure', (message) => {
     status = 'error';
     lastError = `Falha de autenticação: ${message}`;
     debugLog('Falha de autenticação do WhatsApp', message);
     emitState();
   });
 
-  client.on('change_state', (stateName) => {
+  onCurrent('change_state', (stateName) => {
     debugLog('Estado interno do WhatsApp', stateName);
     if (stateName === 'CONNECTED' && status !== 'ready') {
       status = 'ready';
@@ -388,7 +407,7 @@ async function startClientInternal({ recovered = false } = {}) {
     }
   });
 
-  client.on('ready', async () => {
+  onCurrent('ready', async () => {
     status = 'ready';
     lastError = null;
     qrCodeDataUrl = null;
@@ -408,7 +427,7 @@ async function startClientInternal({ recovered = false } = {}) {
     emitState();
   });
 
-  client.on('message', async (message) => {
+  onCurrent('message', async (message) => {
     if (!io) return;
     try {
       clearChatSnapshotCache();
@@ -440,7 +459,7 @@ async function startClientInternal({ recovered = false } = {}) {
     }
   });
 
-  client.on('message_ack', (message, ack) => {
+  onCurrent('message_ack', (message, ack) => {
     if (!io) return;
     io.emit('whatsapp:messageAck', {
       id: message.id?._serialized,
@@ -449,7 +468,7 @@ async function startClientInternal({ recovered = false } = {}) {
     });
   });
 
-  client.on('disconnected', () => {
+  onCurrent('disconnected', () => {
     debugLog('WhatsApp desconectado.');
     status = 'disconnected';
     lastError = null;
@@ -459,13 +478,15 @@ async function startClientInternal({ recovered = false } = {}) {
     if (Date.now() > manualDisconnectUntil) scheduleReconnect('evento disconnected');
   });
 
-  client.initialize().then(() => {
-    writeBrowserPid(client);
+  initializingClient.initialize().then(() => {
+    if (isCurrent()) writeBrowserPid(initializingClient);
   }).catch(async (error) => {
+    if (!isCurrent()) return;
     if (browserPath && isBrowserSpawnError(error) && !failedBrowserPaths.has(browserPath)) {
       failedBrowserPaths.add(browserPath);
       debugLog('Navegador bloqueado pelo sistema, tentando outro caminho', browserPath);
-      await closeClientBrowser(client);
+      await closeClientBrowser(initializingClient);
+      if (!isCurrent()) return;
       client = null;
       isInitializing = false;
       return startClientInternal({ recovered });
@@ -473,26 +494,28 @@ async function startClientInternal({ recovered = false } = {}) {
 
     if (!recovered && isSessionAlreadyRunningError(error)) {
       debugLog('Sessao WhatsApp travada detectada', error.message);
-      await closeClientBrowser(client);
+      await closeClientBrowser(initializingClient);
+      if (!isCurrent()) return;
       await recoverSessionLock(error.message);
+      if (!isCurrent()) return;
       client = null;
       isInitializing = false;
       return startClientInternal({ recovered: true });
     }
     status = 'error';
-    lastError = error.message;
-    debugLog('Erro ao iniciar WhatsApp', error.stack || error.message);
+    lastError = error?.message || String(error);
+    debugLog('Erro ao iniciar WhatsApp', error?.stack || lastError);
     emitState();
     if (Date.now() > manualDisconnectUntil) {
-      setTimeout(() => scheduleReconnect('falha ao iniciar WhatsApp'), 1000);
+      setTimeout(() => { if (isCurrent()) scheduleReconnect('falha ao iniciar WhatsApp'); }, 1000);
     }
   }).finally(() => {
-    isInitializing = false;
+    if (isCurrent()) isInitializing = false;
     debugLog('Inicializacao do cliente WhatsApp finalizada.');
   });
 
   setTimeout(() => {
-    if (status === 'loading' && !qrCodeDataUrl) {
+    if (isCurrent() && status === 'loading' && !qrCodeDataUrl) {
       lastError = 'WhatsApp Web demorou para gerar o QR Code. Clique em Gerar novo QR novamente.';
       debugLog('Timeout aguardando QR Code.');
       emitState();
@@ -1516,7 +1539,14 @@ function mergeAttendanceStats(liveStats = [], savedStats = []) {
   });
 }
 
-async function disconnectWhatsApp({ clearSession = false } = {}) {
+function disconnectWhatsApp(options = {}) {
+  const operation = (disconnectPromise || Promise.resolve()).catch(() => {}).then(() => disconnectWhatsAppInternal(options));
+  disconnectPromise = operation;
+  return operation.finally(() => { if (disconnectPromise === operation) disconnectPromise = null; });
+}
+
+async function disconnectWhatsAppInternal({ clearSession = false } = {}) {
+  if (isShuttingDown) return;
   debugLog('Solicitado reinicio/desconexao WhatsApp', `clearSession=${clearSession}`);
   manualDisconnectUntil = Date.now() + 15000;
   reconnectAttempts = 0;

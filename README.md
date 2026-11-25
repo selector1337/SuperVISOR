@@ -350,7 +350,70 @@ pm2 save
 
 ## Versão
 
-Versão atual: `1.3.0`.
+Versão atual: `1.3.1`.
+
+## Correção do QR Code na aplicação principal
+
+A versão `1.3.1` adapta a conexão à tela `/login/` do WhatsApp Web, que mostra o QR mas não oferece o módulo Socket usado pelo fluxo antigo. Esse comportamento foi [relatado no projeto oficial da biblioteca](https://github.com/wwebjs/whatsapp-web.js/issues/201988). Só clicar em reiniciar ou aumentar o timeout não resolve a incompatibilidade.
+
+O adaptador `src/whatsapp-client.js` captura o QR nativo, acompanha sua atualização e retoma a biblioteca oficial quando a página autenticada é carregada. As dependências desta correção são fixadas em `whatsapp-web.js` `1.34.8` e Puppeteer `24.38.0`. As reinicializações são serializadas e os eventos de clientes encerrados são ignorados.
+
+### Atualizar a produção pelo GitHub
+
+Envie os arquivos atualizados da aplicação principal para seu repositório, incluindo `src/whatsapp.js`, o novo `src/whatsapp-client.js`, os scripts de diagnóstico/teste, `package.json`, `package-lock.json` e este README. Preserve seus arquivos de configuração e dados. A instalação e as integrações da aplicação principal continuam independentes da demo.
+
+No servidor, entre como o usuário que já executa o processo `supervisor`. Os comandos consideram `/var/www/supervisor`; ajuste para sua pasta real. Execute cada etapa somente se a anterior terminar com sucesso:
+
+```bash
+cd /var/www/supervisor
+pm2 stop supervisor
+```
+
+Faça backup dos arquivos locais existentes (Bash):
+
+```bash
+supervisor_backup_items=()
+for item in .env data .wwebjs_auth; do
+    if [ -e "$item" ]; then
+        supervisor_backup_items+=("$item")
+    fi
+done
+if [ "${#supervisor_backup_items[@]}" -gt 0 ]; then
+    tar -czf "$HOME/supervisor-backup-$(date +%Y%m%d-%H%M%S).tar.gz" "${supervisor_backup_items[@]}"
+fi
+```
+
+Se usar MongoDB, mantenha também o backup habitual do banco; o arquivo acima cobre somente os arquivos locais. Depois atualize:
+
+```bash
+git pull --ff-only
+export PUPPETEER_CACHE_DIR="$PWD/.cache/puppeteer"
+npm ci
+npm run check:whatsapp
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
+```
+
+O diagnóstico deve informar `QR Code gerado com sucesso. Nenhuma conta foi conectada.` Ele usa uma sessão temporária, não imprime o QR, não lê a autenticação de produção, não abre o banco MongoDB e não envia mensagens. O `npm ci` instala também o Chrome compatível; verifique possíveis erros antes de prosseguir. A atualização exige uma breve parada do processo principal; não precisa parar `supervisor-demo` ou os processos do gUMperformance.
+
+Abra a aplicação novamente e confira a aba WhatsApp. Se a sessão salva ainda for válida, ela poderá conectar sem QR; se precisar vincular, leia o QR no celular. Usar "Gerar novo QR" remove a autenticação local e exige nova vinculação. Não apague `data`, `.env` ou toda a pasta da aplicação para corrigir esse erro.
+
+Se continuar falhando, colete:
+
+```bash
+pm2 logs supervisor --lines 100 --nostream
+tail -n 100 whatsapp-debug.log
+```
+
+### Verificação da correção
+
+```bash
+npm run test:whatsapp
+npm run test:integrations
+npm run test:gum-receiver
+```
+
+Os testes cobrem atualização do QR, transição da tela de login, reconexão e as integrações com serviços fictícios. O teste real confirmou geração do QR em sessão temporária; leitura pelo celular e operações com a conta vinculada precisam ser conferidas no servidor após a atualização.
 
 ## Interface
 
